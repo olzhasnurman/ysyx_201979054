@@ -92,6 +92,9 @@ module ysyx_201979054_alu
     localparam DIVUW = 5'b10110;
     localparam REMU  = 5'b10111;
     localparam REMUW = 5'b11000;
+    localparam REMW  = 5'b11001;
+    localparam REM   = 5'b11010;
+    localparam MUL   = 5'b11011;
 
 
 
@@ -126,6 +129,9 @@ module ysyx_201979054_alu
     logic [ WORD_WIDTH - 1:0 ] s_divuw_out;
     logic [ DATA_WIDTH - 1:0 ] s_remu_out;
     logic [ WORD_WIDTH - 1:0 ] s_remuw_out;
+    logic [ WORD_WIDTH - 1:0 ] s_remw_out;
+    logic [ DATA_WIDTH - 1:0 ] s_rem_out;
+    logic [ DATA_WIDTH - 1:0 ] s_mul_out;
 
 
     // Flag signals. 
@@ -165,6 +171,9 @@ module ysyx_201979054_alu
     assign s_divuw_out = i_src_1 [ 31:0 ] / i_src_2 [ 31:0];
     assign s_remu_out  = i_src_1 % i_src_2;
     assign s_remuw_out = i_src_1 [ 31:0 ] % i_src_2 [ 31:0];
+    assign s_remw_out  = $unsigned( $signed( i_src_1 [ 31:0 ] ) % $signed( i_src_2 [ 31:0] ) );
+    assign s_rem_out   = $unsigned( $signed( i_src_1 ) % $signed( i_src_2 ) );
+    assign s_mul_out   = $unsigned( $signed( i_src_1 ) * $signed( i_src_2 ) );
 
 
 
@@ -213,6 +222,9 @@ module ysyx_201979054_alu
             DIVUW: o_alu_result = { 32'b0, s_divuw_out };
             REMU : o_alu_result =  s_remu_out;
             REMUW: o_alu_result = { 32'b0, s_remuw_out };
+            REMW : o_alu_result = { { 32{s_remw_out[31]} }, s_remw_out };
+            REM  : o_alu_result =  s_rem_out;
+            MUL  : o_alu_result =  s_mul_out;
 
 
             default: begin
@@ -258,8 +270,9 @@ module ysyx_201979054_alu_decoder
             // I & R Type.
             3'b010: 
                 case (i_func_3)
-                    3'b000: if ( s_op_func_7 == 2'b11 ) o_alu_control = 5'b00001; // sub instruciton.
-                            else                        o_alu_control = 5'b00000; // add & addi instruciton.
+                    3'b000: if      ( i_op_5 & i_func_7_0  ) o_alu_control = 5'b11011; // MUL instruction. 
+                            else if ( s_op_func_7 == 2'b11 ) o_alu_control = 5'b00001; // sub instruciton.
+                            else                             o_alu_control = 5'b00000; // add & addi instruciton.
 
                     3'b001: o_alu_control = 5'b00101; // sll & slli instructions.
 
@@ -279,7 +292,8 @@ module ysyx_201979054_alu_decoder
                             endcase
                         end
 
-                    3'b110: o_alu_control = 5'b00011; // or instruction.
+                    3'b110: if ( i_op_5 & i_func_7_0 ) o_alu_control = 5'b11010; // REM instruction. 
+                            else                       o_alu_control = 5'b00011; // or instruction.
 
                     3'b111: if ( i_op_5 & i_func_7_0 ) o_alu_control = 5'b10111; // REMU instruction.
                             else                       o_alu_control = 5'b00010; // and instruction.
@@ -308,6 +322,7 @@ module ysyx_201979054_alu_decoder
                             else                   o_alu_control = 5'b01101; // SRLIW or SRLW. 
                     3'b100: o_alu_control = 5'b10011; // DIVW.
                     3'b111: o_alu_control = 5'b11000; // REMUW.
+                    3'b110: o_alu_control = 5'b11001; // REMW
                     default: begin
                         o_alu_control   = 5'b00000;
                         o_illegal_instr = 1'b1;                        
@@ -773,6 +788,7 @@ module  ysyx_201979054_control_unit
     logic s_stall_data;
     logic s_start_read_data;
     logic s_start_data_cache;
+    logic s_start_write_th;
 
     // Illegalal instruction flag.
     logic s_illegal_instr_alu;
@@ -831,6 +847,7 @@ module  ysyx_201979054_control_unit
         .o_instr_write_en     ( o_instr_write_en       ),
         .o_start_i_cache      ( s_start_instr_cache    ),
         .o_start_d_cache      ( s_start_data_cache     ),
+        .o_start_write_th     ( s_start_write_th       ),
         .o_branch             ( s_instr_branch         ),
         .o_mem_reg_we         ( o_mem_reg_we           ),
         .o_fetch_state        ( o_fetch_state          ),
@@ -865,6 +882,7 @@ module  ysyx_201979054_control_unit
         .clk                   ( clk                 ),
         .arst                  ( arst                ),
         .i_start_check         ( s_start_data_cache  ),
+        .i_start_write         ( s_start_write_th    ),
         .i_hit                 ( i_data_hit          ),
         .i_dirty               ( i_data_dirty        ),
         .i_r_last              ( i_read_last_axi     ),
@@ -1844,7 +1862,7 @@ module ysyx_201979054_data_cache
 
     //Read dirty bit.
     assign o_dirty      = dirty_mem[ s_lru ][ s_index ];
-    assign o_data_block = data_mem[ s_index ][ s_lru ];
+    assign o_data_block = i_addr_control ? data_mem[ s_index ][ s_match ] : data_mem[ s_index ][ s_lru ];
     assign s_addr_wb    = { tag_mem[ s_index ][ s_lru ], s_index, 6'b0 };
     assign s_addr       = { i_data_addr[ADDR_WIDTH - 1:INDEX_LSB ], 6'b0 };
     assign o_addr_axi   = i_addr_control ? s_addr : s_addr_wb;
@@ -1867,6 +1885,7 @@ module ysyx_201979054_data_cache_fsm
 
     // Input Interface.
     input  logic i_start_check,
+    input  logic i_start_write,
     input  logic i_hit,
     input  logic i_dirty,
     input  logic i_r_last,
@@ -1910,9 +1929,8 @@ module ysyx_201979054_data_cache_fsm
         NS = PS;
 
         case ( PS )
-            IDLE: if ( i_start_check ) begin
-                NS = COMPARE_TAG;
-            end
+            IDLE: if      ( i_start_check ) NS = COMPARE_TAG;
+                  else if ( i_start_write ) NS = WRITE_BACK;
 
             COMPARE_TAG: begin
                 if ( i_hit ) begin
@@ -1932,7 +1950,8 @@ module ysyx_201979054_data_cache_fsm
 
             WRITE_BACK: begin
                 if ( i_b_resp ) begin
-                    NS = ALLOCATE;
+                    if ( i_start_write ) NS = COMPARE_TAG;
+                    else                 NS = ALLOCATE;
                 end
             end
 
@@ -1972,7 +1991,7 @@ module ysyx_201979054_data_cache_fsm
 
             WRITE_BACK: begin
                 o_start_write  = 1'b1;
-                if ( i_b_resp ) o_addr_control = 1'b1;
+                if ( i_b_resp | i_start_write ) o_addr_control = 1'b1;
                 else            o_addr_control = 1'b0;
             end
             default: begin
@@ -2512,6 +2531,7 @@ module ysyx_201979054_main_fsm
     output logic        o_instr_write_en, 
     output logic        o_start_i_cache,
     output logic        o_start_d_cache, 
+    output logic        o_start_write_th,
     output logic        o_branch,
     output logic        o_mem_reg_we,
     output logic        o_fetch_state,
@@ -2536,23 +2556,24 @@ module ysyx_201979054_main_fsm
     assign s_func_3_reduction = | i_func_3;
 
     // State type.
-    typedef enum logic [3:0] {
-        FETCH       = 4'b0000,
-        DECODE      = 4'b0001,
-        MEMADDR     = 4'b0010,
-        MEMREAD     = 4'b0011,
-        MEMWB       = 4'b0100,
-        MEMWRITE    = 4'b0101,
-        EXECUTER    = 4'b0110,
-        ALUWB       = 4'b0111,
-        EXECUTEI    = 4'b1000,
-        JAL         = 4'b1001,
-        BRANCH      = 4'b1010,
-        LOADI       = 4'b1011,
-        CALL_0      = 4'b1100,
-        CSR_EXECUTE = 4'b1101,
-        CSR_WB      = 4'b1110,
-        FENCE_I     = 4'b1111
+    typedef enum logic [4:0] {
+        FETCH       = 5'b00000,
+        DECODE      = 5'b00001,
+        MEMADDR     = 5'b00010,
+        MEMREAD     = 5'b00011,
+        MEMWB       = 5'b00100,
+        MEMWRITE    = 5'b00101,
+        EXECUTER    = 5'b00110,
+        ALUWB       = 5'b00111,
+        EXECUTEI    = 5'b01000,
+        JAL         = 5'b01001,
+        BRANCH      = 5'b01010,
+        LOADI       = 5'b01011,
+        CALL_0      = 5'b01100,
+        CSR_EXECUTE = 5'b01101,
+        CSR_WB      = 5'b01110,
+        FENCE_I     = 5'b01111,
+        WRITE_TH    = 5'b10000
     } t_state;
 
     // State variables. 
@@ -2675,7 +2696,12 @@ module ysyx_201979054_main_fsm
                     else                 NS = PS;
                 end
                 else if ( i_stall_data ) NS = PS;
-                else                     NS = FETCH;
+                else                     NS = WRITE_TH;
+            end
+            
+            WRITE_TH: begin
+                if ( i_stall_data ) NS = PS;
+                else                NS = FETCH;
             end
 
             EXECUTER: NS = ALUWB;
@@ -2729,6 +2755,7 @@ module ysyx_201979054_main_fsm
         o_start_i_cache    = 1'b0;
         o_branch           = 1'b0;
         o_start_d_cache    = 1'b0;
+        o_start_write_th   = 1'b0;
         o_mem_reg_we       = 1'b0;
         o_fetch_state      = 1'b0;
         o_reg_mem_addr_we  = 1'b0;
@@ -2892,6 +2919,10 @@ module ysyx_201979054_main_fsm
                 end
             end
 
+            WRITE_TH: begin
+                o_start_write_th = 1'b1;
+            end
+
             EXECUTER: begin
                 o_alu_src_1 = 2'b10;
                 o_alu_src_2 = 2'b00;
@@ -2986,6 +3017,7 @@ module ysyx_201979054_main_fsm
                 o_start_i_cache    = 1'b0;
                 o_branch           = 1'b0;
                 o_start_d_cache    = 1'b0;
+                o_start_write_th   = 1'b0;
                 o_mem_reg_we       = 1'b0;
                 o_fetch_state      = 1'b0;
                 o_reg_mem_addr_we  = 1'b0;
