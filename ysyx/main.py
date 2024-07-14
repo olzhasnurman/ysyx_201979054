@@ -3,7 +3,7 @@
 import os
 import argparse
 
-stud_id = '22040228'  # modify `stud_id` to your own value
+stud_id = '201979054'  # modify `stud_id` to your own value
 app_type = ['flash', 'mem']
 app = [('hello', 40, 'cmd'), ('memtest', 140, 'cmd'),
        ('rtthread', 1000, 'cmd'), ('muldiv', 60, 'cmd'), ('kdb', 1000, 'gui')]
@@ -11,7 +11,7 @@ app = [('hello', 40, 'cmd'), ('memtest', 140, 'cmd'),
 
 def run_stand_check():
     os.chdir('stand')
-    os.system('./check.py ' + stud_id)
+    os.system('python3 ./check.py ' + stud_id)
     os.chdir('..')
 
 
@@ -75,7 +75,7 @@ def run_reg_test():
 
 def submit_code():
     os.chdir('submit')
-    os.system('./submit.py ' + stud_id)
+    os.system('python3 ./submit.py ' + stud_id)
     os.chdir('..')
 
 
@@ -89,10 +89,10 @@ def gen_test_prog():
         for j in app:
             print('i: ' + i + ' j: ' + j[0])
             os.system("sed -i \"s/\(^APP_TYPE\s\+=\s\+\)'[a-z]\+'/\\1'" + i +
-                      "'/\" run.py")
+                      "'/\" python3 run.py")
             os.system("sed -i \"s/\(^APP_NAME\s\+=\s\+\)'[a-z]\+'/\\1'" +
                       j[0] + "'/\" run.py")
-            os.system('./run.py')
+            os.system('python3 ./run.py')
 
 
 parser = argparse.ArgumentParser(description='OSCPU Season 4 SoC Test')
