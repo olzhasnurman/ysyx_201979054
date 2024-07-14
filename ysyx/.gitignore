@@ -1,0 +1,12 @@
+!*.v
+build
+*.log
+*.wave
+*.out
+*.gtkw
+ysyx_*.v
+rt-thread
+abstract-machine
+sim
+prog
+ysyx4_sim
