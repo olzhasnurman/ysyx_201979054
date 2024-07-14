@@ -16,7 +16,7 @@ logging.basicConfig(
 error = 0
 top_mod_cnt = 0
 core_id = sys.argv[1:2][0]
-core_file = 'ysyx_' + core_id + '.v'
+core_file = 'ysyx_' + core_id + '.sv'
 print('File ' + core_file + ' will be check\n')
 
 sig_port = []
