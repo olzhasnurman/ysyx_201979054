@@ -5,8 +5,15 @@ import argparse
 
 stud_id = '201979054'  # modify `stud_id` to your own value
 app_type = ['flash', 'mem']
-app = [('hello', 40, 'cmd'), ('memtest', 140, 'cmd'),
-       ('rtthread', 1000, 'cmd'), ('muldiv', 60, 'cmd'), ('kdb', 1000, 'gui')]
+app = [('hello', 60, 'cmd'), ('memtest', 140, 'cmd'),
+       ('rtthread', 1000, 'cmd'), ('muldiv', 60, 'cmd'), ('kdb', 1000, 'gui'), ('add-am', 20, 'cmd'),
+       ('add-longlong-am', 20, 'cmd'), ('bit-am', 20, 'cmd'), ('bubble-sort-am', 20, 'cmd'), ('crc32-am', 30, 'cmd'), ('div-am', 20, 'cmd'),
+       ('dummy-am', 20, 'cmd'), ('fact-am', 200, 'cmd'), ('fib-am', 20, 'cmd'), ('goldbach-am', 20, 'cmd'), ('hello-str-am', 20, 'cmd'),
+       ('if-else-am', 20, 'cmd'), ('leap-year-am', 20, 'cmd'), ('load-store-am', 20, 'cmd'), ('matrix-mul-am', 80, 'cmd'), ('max-am', 20, 'cmd'),
+       ('mersenne-am', 20, 'cmd'), ('min3-am', 20, 'cmd'), ('mov-c-am', 20, 'cmd'), ('movsx-am', 20, 'cmd'), ('mul-longlong-am', 20, 'cmd'),
+       ('pascal-am', 20, 'cmd'), ('prime-am', 100, 'cmd'), ('quick-sort-am', 20, 'cmd'), ('recursion-am', 50, 'cmd'), ('select-sort-am', 20, 'cmd'),
+       ('shift-am', 20, 'cmd'), ('shuixianhua-am', 200, 'cmd'), ('string-am', 20, 'cmd'), ('sub-longlong-am', 20, 'cmd'), ('sum-am', 20, 'cmd'),
+       ('switch-am', 20, 'cmd'), ('to-lower-case-am', 20, 'cmd'), ('unalign-am', 20, 'cmd'), ('wanshu-am', 50, 'cmd'), ('logo', 300, 'cmd')]
 
 
 def run_stand_check():

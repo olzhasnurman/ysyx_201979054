@@ -679,43 +679,29 @@ module ysyx_201979054_clint_mmio
 (
     input  logic                     clk,
     input  logic                     arst,
-    input  logic                     write_en,
-    input  logic [             1:0 ] i_addr,
+    input  logic                     write_en_1,
+    input  logic                     write_en_2,
     input  logic [ REG_WIDTH - 1:0 ] i_data,
-    output logic [ REG_WIDTH - 1:0 ] o_data,
-    output logic                     o_timer_int_call,
-    output logic                     o_software_int_call
+    output logic                     o_timer_int_call
 );
 
-
-    logic [ REG_WIDTH - 1:0 ] msip;
     logic [ REG_WIDTH - 1:0 ] mtime;
     logic [ REG_WIDTH - 1:0 ] mtimecmp;
 
-    logic [ REG_WIDTH - 1:0 ] mem [ 3 :0 ];
-
     always_ff @( posedge clk, posedge arst ) begin
         if ( arst ) begin
-            mem [ 0 ] <= '0; // MSIP.
-            mem [ 1 ] <= '0; // MTIME
-            mem [ 2 ] <= '0; // MTIMECMP.
-            mem [ 3 ] <= '0; // Reserved.
+            mtime    <= '0; 
+            mtimecmp <= '0;
         end
         else begin
-            mem [ 1 ] <= mem [ 1 ] + 64'b1;
-            
-            if ( write_en ) mem [ i_addr ] <= i_data;
+            if ( write_en_1 ) mtime <= i_data;
+            else              mtime <= mtime + 64'b1;
+
+            if ( write_en_2 ) mtimecmp <= i_data;
         end
     end
 
-    assign msip     = mem [ 0 ]; 
-    assign mtime    = mem [ 1 ];
-    assign mtimecmp = mem [ 2 ];
-
-    assign o_timer_int_call     = ( mtime >= mtimecmp );
-    assign o_software_int_call  = ( msip != '0 );
-
-    assign o_data = mem [ i_addr ];
+    assign o_timer_int_call = ( mtime >= mtimecmp );
     
 endmodule
 /* Copyright (c) 2024 Maveric NU. All rights reserved. */
@@ -751,9 +737,7 @@ module  ysyx_201979054_control_unit
     input logic         i_load_addr_ma,
     input logic         i_illegal_instr_load,
     input logic         i_timer_int,
-    input logic         i_software_int,
     input  logic        i_cacheable_flag,
-    input  logic        i_clint_mmio_flag,
 
     // Output interface.
     output logic [ 4:0] o_alu_control,
@@ -778,8 +762,6 @@ module  ysyx_201979054_control_unit
     output logic        o_start_read_nc,
     output logic        o_start_write_nc,
     output logic        o_invalidate_instr,
-    output logic        o_write_en_clint,
-    output logic        o_mret_instr,
     output logic        o_interrupt,
     output logic [ 3:0] o_mcause,
     output logic        o_csr_we_1,
@@ -810,8 +792,6 @@ module  ysyx_201979054_control_unit
     // Illegalal instruction flag.
     logic s_illegal_instr_alu;
     logic s_illegal_instr_alu_ff;
-
-    logic s_icache_in_idle;
 
     assign o_pc_write       = s_pc_update | ( s_branch );
 
@@ -846,7 +826,6 @@ module  ysyx_201979054_control_unit
         .i_func_7_4           ( i_func_7[4]            ),
         .i_func_7_0           ( i_func_7[0]            ), 
         .i_func_7_1           ( i_func_7[1]            ),
-        .i_func_7_6           ( i_func_7[6]            ),
         .i_stall_instr        ( s_stall_instr          ),
         .i_stall_data         ( s_stall_data           ),
         .i_instr_addr_ma      ( i_instr_addr_ma        ),
@@ -855,11 +834,8 @@ module  ysyx_201979054_control_unit
         .i_illegal_instr_load ( i_illegal_instr_load   ),
         .i_illegal_instr_alu  ( s_illegal_instr_alu_ff ),
         .i_timer_int          ( i_timer_int            ),
-        .i_software_int       ( i_software_int         ),
         .i_cacheable_flag     ( i_cacheable_flag       ),
         .i_done_axi           ( i_read_last_axi        ),
-        .i_clint_mmio_flag    ( i_clint_mmio_flag      ),
-        .i_icache_idle        ( s_icache_in_idle       ),
         .o_alu_op             ( s_alu_op               ),
         .o_result_src         ( o_result_src           ),
         .o_alu_src_1          ( o_alu_src_1            ),
@@ -877,8 +853,6 @@ module  ysyx_201979054_control_unit
         .o_start_read_nc      ( o_start_read_nc        ),
         .o_start_write_nc     ( o_start_write_nc       ),
         .o_invalidate_instr   ( o_invalidate_instr     ),
-        .o_write_en_clint     ( o_write_en_clint       ),
-        .o_mret_instr         ( o_mret_instr           ),
         .o_interrupt          ( o_interrupt            ),
         .o_mcause             ( o_mcause               ),
         .o_csr_we_1           ( o_csr_we_1             ),
@@ -898,8 +872,7 @@ module  ysyx_201979054_control_unit
         .i_r_last         ( i_read_last_axi        ),
         .o_stall          ( s_stall_instr          ),
         .o_instr_write_en ( o_instr_cache_write_en ),
-        .o_start_read     ( s_start_read_instr     ),
-        .o_in_idle        ( s_icache_in_idle       )
+        .o_start_read     ( s_start_read_instr     )
     );
 
     // Data cache FSM.
@@ -1418,17 +1391,13 @@ module ysyx_201979054_csr_file
     input  logic [ DATA_WIDTH - 1:0 ] i_write_data_1,
     input  logic [ DATA_WIDTH - 1:0 ] i_write_data_2,
     input  logic                      i_timer_int_call,
-    input  logic                      i_software_int_call,
-    input  logic                      i_interrupt_jump,
-    input  logic                      i_mret_instr,
+    input  logic                      i_timer_int_jump,
     
     // Output interface.
     output logic [ DATA_WIDTH - 1:0 ] o_read_data,
     output logic                      o_mie_mstatus,
     output logic                      o_mtip_mip,
-    output logic                      o_msip_mip,
-    output logic                      o_mtie_mie,
-    output logic                      o_msie_mie
+    output logic                      o_mtie_mie
 );
 
     // Register block.
@@ -1438,7 +1407,7 @@ module ysyx_201979054_csr_file
     always_ff @( posedge clk, posedge arst ) begin 
         if ( arst ) begin
             mem[ 0 ] <= '0; // Mstatus
-            mem[ 1 ] <= '0; // Mhartid.
+            mem[ 1 ] <= '0; // Reserved.
             mem[ 2 ] <= '0; // Mie.
             mem[ 3 ] <= '0; // Mtvec.
             mem[ 4 ] <= '0; // Mcause.
@@ -1448,35 +1417,10 @@ module ysyx_201979054_csr_file
         end
         else begin
             if ( i_timer_int_call ) mem[ 6 ][ 7 ] <= 1'b1; // mip MTIP bit set.
-            else                    mem[ 6 ][ 7 ] <= 1'b0; // mip MTIP bit clear.
-
-            if ( i_software_int_call ) mem [ 6 ][ 3 ] <= 1'b1; // mip MSIP bit set.
-            else                       mem [ 6 ][ 3 ] <= 1'b0; // mip MSIP bit clear.
-
-            if ( i_interrupt_jump ) begin 
-                mem[ 0 ][ 3 ] <= 1'b0; // mstatus MIE bit clear.
-                mem[ 0 ][ 7 ] <= mem[ 0 ][ 3 ]; // mstatus MPIE = MIE when jump to interrupt handler is taken.
-            end
-
-            if ( i_mret_instr     ) mem[ 0 ][ 3 ] <= mem[ 0 ][ 7 ]; // mstatus MIE = MPIE in case of MRET instruction.
-
-            if ( write_en_1 ) begin
-                case ( i_write_addr_1 )
-                    6: mem [ 6 ] <= { i_write_data_1[ DATA_WIDTH - 1:8 ], i_timer_int_call, i_write_data_1 [ 6:4 ], i_software_int_call, i_write_data_1 [ 2:0 ] };
-                    0: if ( i_interrupt_jump ) mem [ 0 ] <= {i_write_data_1[ DATA_WIDTH - 1:1 ], 1'b0 };
-                       else                                          mem [ 0 ] <= i_write_data_1;
-                    default: mem[ i_write_addr_1 ] <= i_write_data_1;
-                endcase
-            end
-    
-            if ( write_en_2 ) begin
-                case ( i_write_addr_2 )
-                    6: mem [ 6 ] <= { i_write_data_2[ DATA_WIDTH - 1:8 ], i_timer_int_call, i_write_data_2[ 6:4 ], i_software_int_call, i_write_data_2[ 2:0 ] };
-                    0: if ( i_interrupt_jump ) mem [ 0 ] <= { i_write_data_2 [ DATA_WIDTH - 1:1 ], 1'b0 };
-                       else                                         mem [ 0 ] <= i_write_data_2;
-                    default: mem [ i_write_addr_2 ] <= i_write_data_2;
-                endcase
-            end
+            else                    mem[ 6 ][ 7 ] <= 1'b0; // mip MTIP bit clear. 
+            if ( i_timer_int_jump ) mem[ 0 ][ 3 ] <= 1'b0; // mstatus MIE bit clear.
+            if ( write_en_1 ) mem [ i_write_addr_1 ] <= i_write_data_1;
+            if ( write_en_2 ) mem [ i_write_addr_2 ] <= i_write_data_2;  
         end
     end
 
@@ -1484,9 +1428,7 @@ module ysyx_201979054_csr_file
     assign o_read_data   = mem [ i_read_addr ];
     assign o_mie_mstatus = mem [ 0 ][ 3 ];
     assign o_mtip_mip    = mem [ 6 ][ 7 ];
-    assign o_msip_mip    = mem [ 6 ][ 3 ];
     assign o_mtie_mie    = mem [ 2 ][ 7 ];  
-    assign o_msie_mie    = mem [ 2 ][ 3 ];  
     
 endmodule/* Copyright (c) 2024 Maveric NU. All rights reserved. */
 
@@ -2298,8 +2240,7 @@ module ysyx_201979054_instr_cache_fsm
     // Output Interface.
     output logic o_stall,
     output logic o_instr_write_en,
-    output logic o_start_read,
-    output logic o_in_idle
+    output logic o_start_read
 );
 
     //------------------------------
@@ -2385,8 +2326,6 @@ module ysyx_201979054_instr_cache_fsm
             end
         endcase
     end
-
-    assign o_in_idle = ( PS == IDLE ); 
     
 endmodule/* Copyright (c) 2024 Maveric NU. All rights reserved. */
 
@@ -2566,7 +2505,6 @@ module ysyx_201979054_main_fsm
     input  logic        i_func_7_4,
     input  logic        i_func_7_0, 
     input  logic        i_func_7_1,
-    input  logic        i_func_7_6,
     input  logic        i_stall_instr,
     input  logic        i_stall_data,
     input  logic        i_instr_addr_ma,
@@ -2574,12 +2512,9 @@ module ysyx_201979054_main_fsm
     input  logic        i_load_addr_ma,
     input  logic        i_illegal_instr_load,
     input  logic        i_illegal_instr_alu,
-    input  logic        i_timer_int,
-    input  logic        i_software_int, 
+    input  logic        i_timer_int, 
     input  logic        i_cacheable_flag,
     input  logic        i_done_axi,
-    input  logic        i_clint_mmio_flag,
-    input  logic        i_icache_idle,
 
     // Output interface.
     output logic [ 2:0] o_alu_op,
@@ -2599,8 +2534,6 @@ module ysyx_201979054_main_fsm
     output logic        o_start_read_nc,
     output logic        o_start_write_nc,
     output logic        o_invalidate_instr,
-    output logic        o_write_en_clint,
-    output logic        o_mret_instr,
     output logic        o_interrupt,
     output logic [ 3:0] o_mcause,
     output logic        o_csr_we_1,
@@ -2700,7 +2633,7 @@ module ysyx_201979054_main_fsm
 
         case ( PS )
             FETCH: begin
-                if ( ( i_instr_addr_ma | i_timer_int | i_software_int ) & i_icache_idle ) NS = CALL_0;
+                if ( i_instr_addr_ma | i_timer_int ) NS = CALL_0;
                 else if ( i_stall_instr            ) NS = PS;
                 else                                 NS = DECODE;
             end 
@@ -2741,7 +2674,7 @@ module ysyx_201979054_main_fsm
             MEMREAD: begin
                 if ( i_load_addr_ma | i_illegal_instr_load ) NS = CALL_0;
                 else if ( ~ i_cacheable_flag ) begin
-                    if ( i_done_axi | i_clint_mmio_flag )    NS = MEMWB;
+                    if ( i_done_axi )                        NS = MEMWB;
                     else                                     NS = PS;
                 end
                 else if ( i_stall_data )                     NS = PS;
@@ -2752,7 +2685,6 @@ module ysyx_201979054_main_fsm
 
             MEMWRITE: begin
                 if ( i_store_addr_ma )   NS = CALL_0;
-                else if ( i_clint_mmio_flag  ) NS = FETCH;
                 else if ( ~ i_cacheable_flag ) begin
                     if ( i_done_axi )    NS = FETCH;
                     else                 NS = PS;
@@ -2818,8 +2750,6 @@ module ysyx_201979054_main_fsm
         o_start_read_nc    = 1'b0;
         o_start_write_nc   = 1'b0;
         o_invalidate_instr = 1'b0;
-        o_write_en_clint   = 1'b0;
-        o_mret_instr       = 1'b0;
         o_interrupt        = 1'b0;
         o_mcause           = 4'b0000;
         o_csr_we_1         = 1'b0;
@@ -2838,9 +2768,9 @@ module ysyx_201979054_main_fsm
                 o_alu_src_2     = 2'b10;
                 o_alu_op        = 3'b000;
 
-                if ( i_instr_addr_ma ) begin
-                    o_mcause           = 4'd0; // Instruction address misaligned.
-                    o_interrupt        = 1'b0;
+                if ( i_timer_int ) begin
+                    o_mcause           = 4'd7; // Machine timer interrupt.
+                    o_interrupt        = 1'b1;
                     o_csr_write_addr_1 = 3'b100;  // mcause.
                     o_csr_we_1         = 1'b1; 
                     o_csr_write_addr_2 = 3'b101;  // mepc.
@@ -2849,10 +2779,9 @@ module ysyx_201979054_main_fsm
                     o_start_i_cache    = 1'b0;
                 end
 
-                if ( ( i_software_int | i_timer_int ) & i_icache_idle ) begin
-                    if ( i_timer_int ) o_mcause = 4'd7; // Machine timer interrupt.
-                    else               o_mcause = 4'd3; // Machine software interrupt.
-                    o_interrupt        = 1'b1;
+                if ( i_instr_addr_ma ) begin
+                    o_mcause           = 4'd0; // Instruction address misaligned.
+                    o_interrupt        = 1'b0;
                     o_csr_write_addr_1 = 3'b100;  // mcause.
                     o_csr_we_1         = 1'b1; 
                     o_csr_write_addr_2 = 3'b101;  // mepc.
@@ -2877,19 +2806,14 @@ module ysyx_201979054_main_fsm
                 o_alu_src_2  = 2'b01;
                 o_alu_op     = 3'b000;
 
-                if ( (instr == CSR_Type) & ( ~s_func_3_reduction ) ) begin
-                    if ( i_func_7_4 ) begin
-                        o_mret_instr = 1'b1;
-                    end
-                    else begin
-                        if ( ~i_instr_20 ) o_mcause = 4'd11; // Env call from M-mode.
-                        else               o_mcause = 4'd3; // Env breakpoint.
-                        o_csr_write_addr_1 = 3'b100;  // mcause.
-                        o_csr_we_1         = 1'b1; 
-                        o_csr_write_addr_2 = 3'b101;  // mepc.
-                        o_result_src       = 3'b110; // s_old_pc.  
-                        o_csr_we_2         = 1'b1;   
-                    end
+                if ( (instr == CSR_Type) & ( ~s_func_3_reduction ) & ( ~i_func_7_4 )) begin
+                    if ( ~i_instr_20 ) o_mcause = 4'd11; // Env call from M-mode.
+                    else               o_mcause = 4'd3; // Env breakpoint.
+                    o_csr_write_addr_1 = 3'b100;  // mcause.
+                    o_csr_we_1         = 1'b1; 
+                    o_csr_write_addr_2 = 3'b101;  // mepc.
+                    o_result_src       = 3'b110; // s_old_pc.  
+                    o_csr_we_2         = 1'b1; 
                 end
                 if ( instr == ILLEGAL ) begin
                     o_mcause           = 4'd2; // Illegal instruction.
@@ -2918,7 +2842,7 @@ module ysyx_201979054_main_fsm
 
                 if ( ~ i_cacheable_flag ) begin
                     o_start_d_cache = 1'b0;
-                    o_start_read_nc = ~ i_clint_mmio_flag;
+                    o_start_read_nc = 1'b1;
                 end
 
                 if ( i_load_addr_ma ) begin
@@ -2929,7 +2853,6 @@ module ysyx_201979054_main_fsm
                     o_result_src       = 3'b110; // s_old_pc.  
                     o_csr_we_2         = 1'b1; 
                     o_start_d_cache    = 1'b0;
-                    o_start_read_nc    = 1'b0;
                 end
 
                 if ( i_illegal_instr_load ) begin
@@ -2940,7 +2863,6 @@ module ysyx_201979054_main_fsm
                     o_result_src       = 3'b110; // s_old_pc.  
                     o_csr_we_2         = 1'b1; 
                     o_start_d_cache    = 1'b0;
-                    o_start_read_nc    = 1'b0;
                     // $display("time =%0t", $time); // FOR SIMULATION ONLY.
                 end 
 
@@ -2965,11 +2887,6 @@ module ysyx_201979054_main_fsm
                     o_start_write_nc = 1'b1;
                 end
 
-                if ( i_clint_mmio_flag ) begin
-                    o_start_d_cache  = 1'b0;
-                    o_write_en_clint = 1'b1;
-                    o_start_write_nc = 1'b0;
-                end
                 if ( i_store_addr_ma ) begin
                     o_mcause           = 4'd6; // Store address misaligned.
                     o_csr_write_addr_1 = 3'b100;  // mcause.
@@ -2978,8 +2895,6 @@ module ysyx_201979054_main_fsm
                     o_result_src       = 3'b110; // s_old_pc.  
                     o_csr_we_2         = 1'b1; 
                     o_start_d_cache    = 1'b0;
-                    o_start_write_nc   = 1'b0;
-                    o_write_en_clint   = 1'b0;
                 end
 
                 if ( i_stall_data ) begin
@@ -3064,21 +2979,11 @@ module ysyx_201979054_main_fsm
                 o_csr_we_2   = 1'b1;
                 o_result_src = 3'b010;
                 o_csr_reg_we = 1'b1;
-                if ( i_func_7_6 ) begin 
-                    o_csr_write_addr_2 = 3'b001; // Mhartid.
-                    o_csr_read_addr    = 3'b001; // Mhartid.
-                end
-                else begin 
-                    o_csr_write_addr_2 = s_csr_addr;
-                    o_csr_read_addr    = s_csr_addr;
-                end
             end
 
             CSR_WB: begin
                 o_reg_write_en    = 1'b1;
                 o_result_src      = 3'b101; // s_csr_read_data_reg
-                if ( i_func_7_6 ) o_csr_read_addr = 3'b001; // Mhartid.
-                else              o_csr_read_addr = s_csr_addr;
             end
 
             FENCE_I: o_invalidate_instr = 1'b1;
@@ -3102,8 +3007,6 @@ module ysyx_201979054_main_fsm
                 o_start_read_nc    = 1'b0;
                 o_start_write_nc   = 1'b0;
                 o_invalidate_instr = 1'b0;
-                o_write_en_clint   = 1'b0;
-                o_mret_instr       = 1'b0;
                 o_interrupt        = 1'b0;
                 o_mcause           = 4'b0000;
                 o_csr_we_1         = 1'b0;
@@ -3529,7 +3432,6 @@ module ysyx_201979054_datapath
     logic [ MEM_INSTR_WIDTH - 1:0 ] s_reg_instr;
     logic [ MEM_ADDR_WIDTH  - 1:0 ] s_reg_pc;
     logic [ MEM_ADDR_WIDTH  - 1:0 ] s_reg_old_pc;
-    logic [ MEM_ADDR_WIDTH  - 1:0 ] s_reg_pc_val;
     logic [ REG_DATA_WIDTH  - 1:0 ] s_reg_data_1;
     logic [ REG_DATA_WIDTH  - 1:0 ] s_reg_data_2;
     logic [ REG_DATA_WIDTH  - 1:0 ] s_reg_alu_result;
@@ -3559,28 +3461,19 @@ module ysyx_201979054_datapath
     logic [ REG_DATA_WIDTH - 1:0 ] s_csr_jamp_addr;
     logic [ REG_DATA_WIDTH - 1:0 ] s_csr_mcause;
     logic [                  3:0 ] s_mcause;
-    logic                          s_mret_instr;
 
     // Cacheable mark.
     logic s_cacheable_flag;
     logic s_invalidate_instr;
-
-    // CLINT Signals.
     logic s_clint_mmio_flag;
-    logic s_clint_write_en;
-    logic [ REG_DATA_WIDTH - 1:0 ] s_clint_read_data;
 
     // CLINT machine timer interrupt.
     logic s_interrupt;
     logic s_timer_int_call;
-    logic s_software_int_call;
     logic s_timer_int;
-    logic s_software_int;
     logic s_mie_mstatus;
     logic s_mtip_mip;
-    logic s_msip_mip;
     logic s_mtie_mie;
-    logic s_msie_mie;
 
     // Exception cause signals.
     logic s_instr_addr_ma;
@@ -3604,10 +3497,9 @@ module ysyx_201979054_datapath
 
     assign s_addr_offset = s_reg_mem_addr[2:0];
     
-    assign s_csr_jamp_addr  = ( s_csr_read_data >> 2 ) << 2;
+    assign s_csr_jamp_addr  = s_csr_read_data >> 2;
     assign s_csr_mcause     = { s_interrupt, 59'b0, s_mcause };
     assign s_timer_int      = s_mie_mstatus & s_mtip_mip & s_mtie_mie;
-    assign s_software_int   = s_mie_mstatus & s_msip_mip & s_msie_mie;
 
 
     assign s_cacheable_flag  = ( s_reg_mem_addr >= 64'h3000_0000 );
@@ -3616,9 +3508,7 @@ module ysyx_201979054_datapath
     assign o_addr_non_cacheable = s_reg_mem_addr;
     assign o_data_non_cacheable = s_reg_data_2;
 
-    assign s_mem_data = s_cacheable_flag ? s_reg_mem_data : ( s_clint_mmio_flag ? s_clint_read_data : i_data_non_cacheable);
-
-    assign s_reg_pc_val = s_fetch_state ? s_reg_pc : s_reg_old_pc;
+    assign s_mem_data = s_cacheable_flag ? s_reg_mem_data : i_data_non_cacheable;
 
 
  
@@ -3662,9 +3552,7 @@ module ysyx_201979054_datapath
         .i_load_addr_ma         ( s_load_addr_ma        ),
         .i_illegal_instr_load   ( s_illegal_instr_load  ),
         .i_timer_int            ( s_timer_int           ),
-        .i_software_int         ( s_software_int        ),
         .i_cacheable_flag       ( s_cacheable_flag      ),
-        .i_clint_mmio_flag      ( s_clint_mmio_flag     ),
         .o_alu_control          ( s_alu_control         ),
         .o_result_src           ( s_result_src          ),
         .o_alu_src_1            ( s_alu_src_control_1   ),
@@ -3687,8 +3575,6 @@ module ysyx_201979054_datapath
         .o_start_read_nc        ( o_start_read_axi_nc   ),
         .o_start_write_nc       ( o_start_write_axi_nc  ),
         .o_invalidate_instr     ( s_invalidate_instr    ),
-        .o_write_en_clint       ( s_clint_write_en      ),
-        .o_mret_instr           ( s_mret_instr          ),
         .o_interrupt            ( s_interrupt           ),
         .o_mcause               ( s_mcause              ),
         .o_csr_we_1             ( s_csr_we_1            ),
@@ -3755,38 +3641,32 @@ module ysyx_201979054_datapath
 
     // Control & Status Registers.
     ysyx_201979054_csr_file CSR0 (
-        .clk                 ( clk                 ),
-        .write_en_1          ( s_csr_we_1          ),
-        .write_en_2          ( s_csr_we_2          ),
-        .arst                ( arst                ),
-        .i_read_addr         ( s_csr_read_addr     ),
-        .i_write_addr_1      ( s_csr_write_addr_1  ),
-        .i_write_addr_2      ( s_csr_write_addr_2  ),
-        .i_write_data_1      ( s_csr_mcause        ),
-        .i_write_data_2      ( s_result            ),
-        .i_timer_int_call    ( s_timer_int_call    ),
-        .i_software_int_call ( s_software_int_call ),
-        .i_interrupt_jump    ( s_interrupt         ),
-        .i_mret_instr        ( s_mret_instr        ),
-        .o_read_data         ( s_csr_read_data     ),
-        .o_mie_mstatus       ( s_mie_mstatus       ),
-        .o_mtip_mip          ( s_mtip_mip          ),
-        .o_msip_mip          ( s_msip_mip          ),
-        .o_mtie_mie          ( s_mtie_mie          ),
-        .o_msie_mie          ( s_msie_mie          )
+        .clk              ( clk                ),
+        .write_en_1       ( s_csr_we_1         ),
+        .write_en_2       ( s_csr_we_2         ),
+        .arst             ( arst               ),
+        .i_read_addr      ( s_csr_read_addr    ),
+        .i_write_addr_1   ( s_csr_write_addr_1 ),
+        .i_write_addr_2   ( s_csr_write_addr_2 ),
+        .i_write_data_1   ( s_csr_mcause       ),
+        .i_write_data_2   ( s_result           ),
+        .i_timer_int_call ( s_timer_int_call   ),
+        .i_timer_int_jump ( s_interrupt        ),
+        .o_read_data      ( s_csr_read_data    ),
+        .o_mie_mstatus    ( s_mie_mstatus      ),
+        .o_mtip_mip       ( s_mtip_mip         ),
+        .o_mtie_mie       ( s_mtie_mie         )
     );
 
 
     // CLINT MMIO.
     ysyx_201979054_clint_mmio CLINT0 (
-        .clk                 ( clk                     ),
-        .arst                ( arst                    ),
-        .write_en            ( s_clint_write_en        ),
-        .i_addr              ( s_reg_mem_addr[ 14:13 ] ),
-        .i_data              ( s_reg_data_2            ),
-        .o_data              ( s_clint_read_data       ),
-        .o_timer_int_call    ( s_timer_int_call        ),
-        .o_software_int_call ( s_software_int_call     )
+        .clk              ( clk              ),
+        .arst             ( arst             ),
+        .write_en_1       ( 1'b0             ),
+        .write_en_2       ( 1'b0             ),
+        .i_data           ( '0               ),
+        .o_timer_int_call ( s_timer_int_call )
     );
 
 
@@ -3931,7 +3811,7 @@ module ysyx_201979054_datapath
         .i_mux_3        ( s_imm_ext           ),
         .i_mux_4        ( s_csr_read_data     ),
         .i_mux_5        ( s_csr_read_data_reg ),
-        .i_mux_6        ( s_reg_pc_val        ),
+        .i_mux_6        ( s_reg_old_pc        ),
         .i_mux_7        ( s_csr_jamp_addr     ),
         .o_mux          ( s_result            ) 
     );
