@@ -1,15 +1,15 @@
 fast flash - fast flash mem - normal flash - normal flash mem
-hello:            PASS - TIME - PASS - TIME
+hello:            PASS - WRTH - PASS - WRTH
 memtest:          PASS - PASS - PASS - PASS
-rtthread:         PASS - PASS - FAIL - PASS
+rtthread:         PAST - PASS - FAIL - PASS
 muldiv:           PASS - PASS - PASS - PASS
 add-am:           PASS - PASS - PASS - PASS
 add-longlong-am:  PASS - PASS - PASS - PASS
-bit-am:           PASS - TIME - PASS - TIME
+bit-am:           PASS - WRTH - PASS - WRTH
 bubble-sort:      PASS - PASS - PASS - PASS
 crc32-am:         PASS - PASS - PASS - PASS
 div-am:           PASS - PASS - PASS - PASS
-dummy-am:         PASS - TIME - PASS - TIME
+dummy-am:         PASS - WRTH - PASS - WRTH
 fact-am:          PASS - PASS - PASS - PASS
 fib-am:           PASS - PASS - PASS - PASS
 goldbach-am:      PASS - PASS - PASS - PASS
