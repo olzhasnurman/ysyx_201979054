@@ -86,16 +86,6 @@ module ysyx_201979054_alu
     localparam CSRRS = 5'b10001;
     localparam CSRRC = 5'b10010;
 
-    localparam DIVW  = 5'b10011;
-    localparam MULW  = 5'b10100;
-    localparam DIVU  = 5'b10101; 
-    localparam DIVUW = 5'b10110;
-    localparam REMU  = 5'b10111;
-    localparam REMUW = 5'b11000;
-    localparam REMW  = 5'b11001;
-    localparam REM   = 5'b11010;
-    localparam MUL   = 5'b11011;
-
 
 
 
@@ -122,17 +112,6 @@ module ysyx_201979054_alu
     logic [ WORD_WIDTH - 1:0 ] s_sllw_out;
     logic [ WORD_WIDTH - 1:0 ] s_srlw_out;
     logic [ WORD_WIDTH - 1:0 ] s_sraw_out;
-
-    logic [ WORD_WIDTH - 1:0 ] s_divw_out;
-    logic [ WORD_WIDTH - 1:0 ] s_mulw_out;
-    logic [ DATA_WIDTH - 1:0 ] s_divu_out;
-    logic [ WORD_WIDTH - 1:0 ] s_divuw_out;
-    logic [ DATA_WIDTH - 1:0 ] s_remu_out;
-    logic [ WORD_WIDTH - 1:0 ] s_remuw_out;
-    logic [ WORD_WIDTH - 1:0 ] s_remw_out;
-    logic [ DATA_WIDTH - 1:0 ] s_rem_out;
-    logic [ DATA_WIDTH - 1:0 ] s_mul_out;
-
 
     // Flag signals. 
     // logic s_carry_flag_add;
@@ -164,17 +143,6 @@ module ysyx_201979054_alu
     assign s_sllw_out = i_src_1[31:0] << i_src_2[4:0];
     assign s_srlw_out = i_src_1[31:0] >> i_src_2[4:0];
     assign s_sraw_out = $unsigned($signed(i_src_1[31:0]) >>> i_src_2[4:0]);
-
-    assign s_divw_out  = $unsigned( $signed( i_src_1 [ 31:0 ] ) / $signed( i_src_2 [ 31:0] ) );
-    assign s_mulw_out  = $unsigned( $signed( i_src_1 [ 31:0 ] ) * $signed( i_src_2 [ 31:0] ) );
-    assign s_divu_out  = i_src_1 / i_src_2;
-    assign s_divuw_out = i_src_1 [ 31:0 ] / i_src_2 [ 31:0];
-    assign s_remu_out  = i_src_1 % i_src_2;
-    assign s_remuw_out = i_src_1 [ 31:0 ] % i_src_2 [ 31:0];
-    assign s_remw_out  = $unsigned( $signed( i_src_1 [ 31:0 ] ) % $signed( i_src_2 [ 31:0] ) );
-    assign s_rem_out   = $unsigned( $signed( i_src_1 ) % $signed( i_src_2 ) );
-    assign s_mul_out   = $unsigned( $signed( i_src_1 ) * $signed( i_src_2 ) );
-
 
 
     // Flags. 
@@ -216,17 +184,6 @@ module ysyx_201979054_alu
             CSRRS: o_alu_result = s_or_out;
             CSRRC: o_alu_result = ( ~ i_src_1) & i_src_2;
 
-            DIVW : o_alu_result = { { 32{s_divw_out[31]} }, s_divw_out };
-            MULW : o_alu_result = { { 32{s_mulw_out[31]} }, s_mulw_out[31:0] };
-            DIVU : o_alu_result = s_divu_out;
-            DIVUW: o_alu_result = { 32'b0, s_divuw_out };
-            REMU : o_alu_result =  s_remu_out;
-            REMUW: o_alu_result = { 32'b0, s_remuw_out };
-            REMW : o_alu_result = { { 32{s_remw_out[31]} }, s_remw_out };
-            REM  : o_alu_result =  s_rem_out;
-            MUL  : o_alu_result =  s_mul_out;
-
-
             default: begin
                 o_alu_result    = 'b0;
             end 
@@ -247,7 +204,6 @@ module ysyx_201979054_alu_decoder
     input  logic [2:0] i_alu_op,
     input  logic [2:0] i_func_3,
     input  logic       i_func_7_5,
-    input  logic       i_func_7_0,
     input  logic       i_op_5,
 
     // Output interface. 
@@ -270,9 +226,8 @@ module ysyx_201979054_alu_decoder
             // I & R Type.
             3'b010: 
                 case (i_func_3)
-                    3'b000: if      ( i_op_5 & i_func_7_0  ) o_alu_control = 5'b11011; // MUL instruction. 
-                            else if ( s_op_func_7 == 2'b11 ) o_alu_control = 5'b00001; // sub instruciton.
-                            else                             o_alu_control = 5'b00000; // add & addi instruciton.
+                    3'b000: if ( s_op_func_7 == 2'b11 ) o_alu_control = 5'b00001; // sub instruciton.
+                            else                        o_alu_control = 5'b00000; // add & addi instruciton.
 
                     3'b001: o_alu_control = 5'b00101; // sll & slli instructions.
 
@@ -283,20 +238,15 @@ module ysyx_201979054_alu_decoder
                     3'b100: o_alu_control = 5'b00100; // xor instruction.
 
                     3'b101: 
-                        if ( i_op_5 & i_func_7_0 ) o_alu_control = 5'b10101; // DIVU.
-                        else begin
-                            case ( i_func_7_5 )
-                                1'b0:   o_alu_control = 5'b01000; // srl & srli instructions.
-                                1'b1:   o_alu_control = 5'b01001; // sra & srai instructions. 
-                                default: o_alu_control = '0; 
-                            endcase
-                        end
+                        case ( i_func_7_5 )
+                            1'b0:   o_alu_control = 5'b01000; // srl & srli instructions.
+                            1'b1:   o_alu_control = 5'b01001; // sra & srai instructions. 
+                            default: o_alu_control = '0; 
+                        endcase
 
-                    3'b110: if ( i_op_5 & i_func_7_0 ) o_alu_control = 5'b11010; // REM instruction. 
-                            else                       o_alu_control = 5'b00011; // or instruction.
+                    3'b110: o_alu_control = 5'b00011; // or instruction.
 
-                    3'b111: if ( i_op_5 & i_func_7_0 ) o_alu_control = 5'b10111; // REMU instruction.
-                            else                       o_alu_control = 5'b00010; // and instruction.
+                    3'b111: o_alu_control = 5'b00010; // and instruction.
 
                     default: o_alu_control = 5'b00000; // add instrucito for default. 
                 endcase
@@ -304,25 +254,15 @@ module ysyx_201979054_alu_decoder
             // I & R Type W.
             3'b011: 
                 case ( i_func_3 )
-                    3'b000:
-                        if ( i_func_7_0 ) begin 
-                            if ( i_op_5 ) o_alu_control = 5'b10100; // MULW.
-                            else          o_alu_control = 5'b01111; // ADDIW. 
-                        end
-                        else begin
-                            case ( s_op_func_7 )
-                                2'b11:   o_alu_control = 5'b01011; // SUBW.
-                                2'b10:   o_alu_control = 5'b01010; // ADDW.
-                                default: o_alu_control = 5'b01111; // ADDIW.
-                            endcase
-                        end 
+                    3'b000: 
+                        case ( s_op_func_7 )
+                            2'b11:   o_alu_control = 5'b01011; // SUBW.
+                            2'b10:   o_alu_control = 5'b01010; // ADDW.
+                            default: o_alu_control = 5'b01111; // ADDIW.
+                        endcase
                     3'b001: o_alu_control = 5'b01100; // SLLIW or SLLW
-                    3'b101: if      ( i_func_7_0 ) o_alu_control = 5'b10110; // DIVUW.     
-                            else if ( i_func_7_5 ) o_alu_control = 5'b01110; // SRAIW or SRAW.
-                            else                   o_alu_control = 5'b01101; // SRLIW or SRLW. 
-                    3'b100: o_alu_control = 5'b10011; // DIVW.
-                    3'b111: o_alu_control = 5'b11000; // REMUW.
-                    3'b110: o_alu_control = 5'b11001; // REMW
+                    3'b101: if ( i_func_7_5 ) o_alu_control = 5'b01110; // SRAIW or SRAW.
+                            else              o_alu_control = 5'b01101; // SRLIW or SRLW. 
                     default: begin
                         o_alu_control   = 5'b00000;
                         o_illegal_instr = 1'b1;                        
@@ -926,7 +866,6 @@ module  ysyx_201979054_control_unit
         .i_alu_op        ( s_alu_op            ),
         .i_func_3        ( i_func_3            ),
         .i_func_7_5      ( i_func_7[5]         ),
-        .i_func_7_0      ( i_func_7[0]         ),
         .i_op_5          ( i_op[5]             ),
         .o_alu_control   ( o_alu_control       ),
         .o_illegal_instr ( s_illegal_instr_alu )
