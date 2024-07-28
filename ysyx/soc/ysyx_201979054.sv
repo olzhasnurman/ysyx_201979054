@@ -677,7 +677,7 @@ module  ysyx_201979054_control_unit
     input  logic        i_instr_20,
     input  logic [ 6:0] i_op,
     input  logic [ 2:0] i_func_3,
-    input  logic [ 2:0] i_func7_6_4,
+    input  logic [ 3:0] i_func7_6_3,
     input  logic [ 1:0] i_func7_1_0, 
     input  logic        i_zero_flag,
     input  logic        i_slt_flag,
@@ -791,10 +791,11 @@ module  ysyx_201979054_control_unit
         .i_instr_20           ( i_instr_20             ),
         .i_op                 ( i_op                   ),
         .i_func_3             ( i_func_3               ),
-        .i_func_7_4           ( i_func7_6_4[0]         ),
+        .i_func_7_4           ( i_func7_6_3[1]         ),
         .i_func_7_0           ( i_func7_1_0[0]         ), 
         .i_func_7_1           ( i_func7_1_0[1]         ),
-        .i_func_7_6           ( i_func7_6_4[2]         ),
+        .i_func_7_6           ( i_func7_6_3[3]         ),
+        .i_pred_0             ( i_func7_6_3[0]         ),
         .i_stall_instr        ( s_stall_instr          ),
         .i_stall_data         ( s_stall_data           ),
         .i_instr_addr_ma      ( i_instr_addr_ma        ),
@@ -877,7 +878,7 @@ module  ysyx_201979054_control_unit
     ysyx_201979054_alu_decoder ALU_DECODER (
         .i_alu_op        ( s_alu_op            ),
         .i_func_3        ( i_func_3            ),
-        .i_func_7_5      ( i_func7_6_4[1]      ),
+        .i_func_7_5      ( i_func7_6_3[2]      ),
         .i_op_5          ( i_op[5]             ),
         .o_alu_control   ( o_alu_control       ),
         .o_illegal_instr ( s_illegal_instr_alu )
@@ -2535,6 +2536,7 @@ module ysyx_201979054_main_fsm
     input  logic        i_func_7_0, 
     input  logic        i_func_7_1,
     input  logic        i_func_7_6,
+    input  logic        i_pred_0,
     input  logic        i_stall_instr,
     input  logic        i_stall_data,
     input  logic        i_instr_addr_ma,
@@ -2759,8 +2761,8 @@ module ysyx_201979054_main_fsm
 
             CSR_WB: NS = FETCH;
 
-            FENCE_I: if      ( i_func_3[0]  ) NS = FETCH;
-                     else if ( i_done_fence ) NS = FETCH;
+            FENCE_I: if      ( i_func_3[0]              ) NS = FETCH;
+                     else if ( i_done_fence | !i_pred_0 ) NS = FETCH;
 
             default: NS = PS;
         endcase
@@ -3052,10 +3054,16 @@ module ysyx_201979054_main_fsm
             end
 
             FENCE_I: begin
-                o_invalidate_instr = 1'b0;
-                o_start_wb         = 1'b1;
                 if ( i_func_3[0] ) begin
                     o_invalidate_instr = 1'b1;
+                    o_start_wb         = 1'b0;
+                end
+                else if ( i_pred_0 ) begin
+                    o_invalidate_instr = 1'b0;
+                    o_start_wb         = 1'b1;
+                end
+                else begin
+                    o_invalidate_instr = 1'b0;
                     o_start_wb         = 1'b0;
                 end
             end
@@ -3618,7 +3626,7 @@ module ysyx_201979054_datapath
         .i_instr_20             ( s_reg_instr[20]       ),
         .i_op                   ( s_op                  ),
         .i_func_3               ( s_func_3              ),
-        .i_func7_6_4            ( s_reg_instr[31:29]    ),
+        .i_func7_6_3            ( s_reg_instr[31:28]    ),
         .i_func7_1_0            ( s_reg_instr[26:25]    ),
         .i_zero_flag            ( s_zero_flag           ),
         .i_slt_flag             ( s_slt_flag            ),
