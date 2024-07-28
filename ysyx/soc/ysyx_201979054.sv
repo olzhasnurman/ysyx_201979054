@@ -1784,12 +1784,9 @@ module ysyx_201979054_data_cache
             dirty_mem [ 0 ] <= '0;
             dirty_mem [ 1 ] <= '0;
         end
-        else if ( write_en ) begin
-            dirty_mem[ s_match ][ s_index ] <= 1'b1;
-        end
-        else if ( block_write_en ) begin
-            dirty_mem[ s_lru ][ s_index ] <= 1'b0;
-        end
+        else if ( write_en       ) dirty_mem[ s_match    ][ s_index    ] <= 1'b1;
+        else if ( block_write_en ) dirty_mem[ s_lru      ][ s_index    ] <= 1'b0;
+        else if ( i_done_wb      ) dirty_mem[ s_count[1] ][ s_count[0] ] <= 1'b0;
     end
 
     // Write valid bit. 
