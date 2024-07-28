@@ -414,7 +414,7 @@ module ysyx_201979054_axi4_master
             o_awaddr  <= '0;
 
             o_wvalid  <= 1'b0;
-            o_wstrb   <= i_axi_strb;
+            o_wstrb   <= '0;
 
             o_bready  <= 1'b0;
 
@@ -486,7 +486,7 @@ module ysyx_201979054_axi4_master
                     o_awaddr  <= '0;
     
                     o_wvalid  <= 1'b0;
-                    o_wstrb   <= i_axi_strb;
+                    o_wstrb   <= '0;
     
                     o_bready  <= 1'b0;
     
@@ -677,7 +677,8 @@ module  ysyx_201979054_control_unit
     input  logic        i_instr_20,
     input  logic [ 6:0] i_op,
     input  logic [ 2:0] i_func_3,
-    input  logic [ 6:0] i_func_7, 
+    input  logic [ 2:0] i_func7_6_4,
+    input  logic [ 1:0] i_func7_1_0, 
     input  logic        i_zero_flag,
     input  logic        i_slt_flag,
     input  logic        i_sltu_flag,
@@ -694,6 +695,7 @@ module  ysyx_201979054_control_unit
     input logic         i_software_int,
     input  logic        i_cacheable_flag,
     input  logic        i_clint_mmio_flag,
+    input  logic        i_done_fence,
 
     // Output interface.
     output logic [ 4:0] o_alu_control,
@@ -721,6 +723,8 @@ module  ysyx_201979054_control_unit
     output logic        o_write_en_clint,
     output logic        o_mret_instr,
     output logic        o_interrupt,
+    output logic        o_done_wb,
+    output logic        o_start_wb,
     output logic [ 3:0] o_mcause,
     output logic        o_csr_we_1,
     output logic        o_csr_we_2,
@@ -753,6 +757,10 @@ module  ysyx_201979054_control_unit
 
     logic s_icache_in_idle;
 
+    logic s_start_wb;
+
+    assign o_start_wb = s_start_wb;
+
     assign o_pc_write       = s_pc_update | ( s_branch );
 
     assign o_start_read_axi = s_start_read_data | s_start_read_instr;
@@ -783,10 +791,10 @@ module  ysyx_201979054_control_unit
         .i_instr_20           ( i_instr_20             ),
         .i_op                 ( i_op                   ),
         .i_func_3             ( i_func_3               ),
-        .i_func_7_4           ( i_func_7[4]            ),
-        .i_func_7_0           ( i_func_7[0]            ), 
-        .i_func_7_1           ( i_func_7[1]            ),
-        .i_func_7_6           ( i_func_7[6]            ),
+        .i_func_7_4           ( i_func7_6_4[0]         ),
+        .i_func_7_0           ( i_func7_1_0[0]         ), 
+        .i_func_7_1           ( i_func7_1_0[1]         ),
+        .i_func_7_6           ( i_func7_6_4[2]         ),
         .i_stall_instr        ( s_stall_instr          ),
         .i_stall_data         ( s_stall_data           ),
         .i_instr_addr_ma      ( i_instr_addr_ma        ),
@@ -800,6 +808,7 @@ module  ysyx_201979054_control_unit
         .i_done_axi           ( i_read_last_axi        ),
         .i_clint_mmio_flag    ( i_clint_mmio_flag      ),
         .i_icache_idle        ( s_icache_in_idle       ),
+        .i_done_fence         ( i_done_fence           ),
         .o_alu_op             ( s_alu_op               ),
         .o_result_src         ( o_result_src           ),
         .o_alu_src_1          ( o_alu_src_1            ),
@@ -820,6 +829,7 @@ module  ysyx_201979054_control_unit
         .o_write_en_clint     ( o_write_en_clint       ),
         .o_mret_instr         ( o_mret_instr           ),
         .o_interrupt          ( o_interrupt            ),
+        .o_start_wb           ( s_start_wb             ),
         .o_mcause             ( o_mcause               ),
         .o_csr_we_1           ( o_csr_we_1             ),
         .o_csr_we_2           ( o_csr_we_2             ),
@@ -851,13 +861,15 @@ module  ysyx_201979054_control_unit
         .i_dirty               ( i_data_dirty        ),
         .i_r_last              ( i_read_last_axi     ),
         .i_b_resp              ( i_b_resp_axi        ),
+        .i_start_wb            ( s_start_wb          ),
         .o_stall               ( s_stall_data        ),
         .o_data_block_write_en ( o_block_write_en    ),
         .o_valid_update        ( o_data_valid_update ),
         .o_lru_update          ( o_data_lru_update   ),
         .o_start_write         ( o_start_write_axi   ),
         .o_start_read          ( s_start_read_data   ),
-        .o_addr_control        ( o_addr_control      )
+        .o_addr_control        ( o_addr_control      ),
+        .o_done_wb             ( o_done_wb           )
     );
 
 
@@ -865,7 +877,7 @@ module  ysyx_201979054_control_unit
     ysyx_201979054_alu_decoder ALU_DECODER (
         .i_alu_op        ( s_alu_op            ),
         .i_func_3        ( i_func_3            ),
-        .i_func_7_5      ( i_func_7[5]         ),
+        .i_func_7_5      ( i_func7_6_4[1]      ),
         .i_op_5          ( i_op[5]             ),
         .o_alu_control   ( o_alu_control       ),
         .o_illegal_instr ( s_illegal_instr_alu )
@@ -910,12 +922,14 @@ module ysyx_201979054_counter
 
     logic [ $clog2( SIZE ) - 1:0 ] s_count;
 
-    always_ff @( posedge clk, posedge arst ) begin
+    always_ff @( posedge clk, posedge arst, negedge restartn ) begin
         if      ( arst | ~restartn ) s_count <= '0;
-        else if ( run              ) s_count <= s_count + 1; 
+        else if ( run              ) s_count <= s_count + 4'b1; 
+    end
 
+    always_ff @( posedge clk ) begin
         if ( (s_count == LIMIT ) & run ) o_done <= 1'b1;
-        else                            o_done <= 1'b0;
+        else                             o_done <= 1'b0;
     end
     
 endmodule/* Copyright (c) 2024 Maveric NU. All rights reserved. */
@@ -1039,6 +1053,8 @@ module ysyx_201979054 (
     //--------------------------------
     // Internal nets.
     //--------------------------------
+    logic arst;
+
     logic s_write_req;
     logic s_read_req;
     logic s_read_req_non_cacheable;
@@ -1049,11 +1065,11 @@ module ysyx_201979054 (
     logic [ 511:0 ] s_data_block_read_top_axi4;
     logic [ 511:0 ] s_data_block_read_top_apb;
     logic [  63:0 ] s_data_non_cacheable_r;
-    logic [  63:0 ] s_data_non_cacheable_w;
-    logic [  63:0 ] s_addr;
-    logic [  63:0 ] s_addr_non_cacheable;
-    logic [  63:0 ] s_addr_calc;
-    logic [  63:0 ] s_addr_calc_apb;
+    logic [   7:0 ] s_data_non_cacheable_w;
+    logic [  31:0 ] s_addr;
+    logic [  31:0 ] s_addr_non_cacheable;
+    logic [  31:0 ] s_addr_calc;
+    logic [  31:0 ] s_addr_calc_apb;
 
     logic [ 31:0 ] s_read_axi_fifo;
     logic [ 63:0 ] s_write_axi_fifo;
@@ -1063,11 +1079,7 @@ module ysyx_201979054 (
     logic [ 31:0 ] s_addr_axi;
     logic [ 63:0 ] s_write_axi;
     logic [ 63:0 ] s_read_axi;
-    logic [ 63:0 ] s_reg_read_axi;
-
-    logic s_axi_wrlast;
-    logic s_axi_wlast;
-    logic s_axi_rlast;
+    logic [  7:0 ] s_reg_read_axi;
 
     logic s_axi_done;
     logic s_axi_handshake;
@@ -1090,7 +1102,7 @@ module ysyx_201979054 (
 
     logic s_axi4_access;
 
-    assign s_axi4_access = ( s_addr >= 64'h4000_0000 );
+    assign s_axi4_access = ( s_addr >= 32'h4000_0000 );
 
     assign s_axi_strb_cache      = s_axi4_access ? 8'hFF : 8'h0F;
     assign s_axi_size_cache      = s_axi4_access ? 3'b11 : 3'b10;
@@ -1106,25 +1118,40 @@ module ysyx_201979054 (
     assign s_start_write_axi_cache = s_write_req & ( ~ s_count_done );
     assign s_start_write_axi       = s_write_req_non_cacheable | s_start_write_axi_cache;
     
-    assign io_master_wlast = s_axi_wlast;
-    assign s_axi_rlast     = io_master_rlast; 
-    assign s_addr_axi      = ( s_read_req_non_cacheable | s_write_req_non_cacheable ) ? s_addr_non_cacheable [ 31:0 ] : s_addr_calc [ 31:0 ];
+    assign s_addr_axi      = ( s_read_req_non_cacheable | s_write_req_non_cacheable ) ? s_addr_non_cacheable : s_addr_calc;
     assign s_axi_size      = ( s_read_req_non_cacheable | s_write_req_non_cacheable ) ? 3'b00 : s_axi_size_cache;
     assign s_axi_strb      = s_write_req_non_cacheable  ? 8'h01 : s_axi_strb_cache;
     assign s_axi_len       = s_axi4_access ? 8'b111 : 8'b000;
 
     assign s_read_axi_fifo        = s_read_axi [ 31:0 ];
-    assign s_data_non_cacheable_r = { 56'b0 , s_reg_read_axi [ 7:0 ]};
-    assign s_write_axi            = s_write_req_non_cacheable ? { 8 { s_data_non_cacheable_w [ 7:0 ] } } : s_write_axi_fifo;
+    assign s_data_non_cacheable_r = { 56'b0 , s_reg_read_axi };
+    assign s_write_axi            = s_write_req_non_cacheable ? { 8 { s_data_non_cacheable_w } } : s_write_axi_fifo;
 
     assign s_done = ( s_count_done ) | ( s_axi_done & ( s_read_req_non_cacheable | s_write_req_non_cacheable ) ) | ( s_axi4_access & s_axi_done ); 
+
+
+
+    //-----------------------------------
+    // LOWER LEVEL MODULE INSTANTIATIONS.
+    //-----------------------------------
+
+    //------------------------------
+    // Reset Synchronizer Instance.
+    //------------------------------
+    ysyx_201979054_reset_sync RST_SYNC (
+        .clk       ( clock ),
+        .arst      ( reset ),
+        .arst_sync ( arst  )
+    );
+
+
 
     //-----------------------------
     // Top datapath unit instance.
     //-----------------------------
     ysyx_201979054_datapath TOP0 (
         .clk                  ( clock                     ),
-        .i_arst               ( reset                     ),
+        .arst                 ( arst                      ),
         .i_done_axi           ( s_done                    ),
         .i_data_read_axi      ( s_data_block_read_top     ),
         .i_data_non_cacheable ( s_data_non_cacheable_r    ),
@@ -1145,7 +1172,7 @@ module ysyx_201979054 (
     //-----------------------
     ysyx_201979054_axi4_master AXI4_M0 (
         .clk          ( clock             ),
-        .arst         ( reset             ),
+        .arst         ( arst              ),
         .io_interrupt ( io_interrupt      ),
         .i_write_req  ( s_start_write_axi ),
         .i_read_req   ( s_start_read_axi  ),
@@ -1169,7 +1196,7 @@ module ysyx_201979054 (
         .o_wvalid     ( io_master_wvalid  ),
         .o_wdata      ( io_master_wdata   ),
         .o_wstrb      ( io_master_wstrb   ), 
-        .o_wlast      ( s_axi_wlast       ),
+        .o_wlast      ( io_master_wlast   ),
         .o_bready     ( io_master_bready  ),
         .i_bvalid     ( io_master_bvalid  ),
         .i_bid        ( io_master_bid     ),
@@ -1195,20 +1222,20 @@ module ysyx_201979054 (
     //-------------------------------------------
     ysyx_201979054_cache_data_transfer # (
         .AXI_DATA_WIDTH ( 32      ),
-        .AXI_ADDR_WIDTH ( 64      ),
+        .AXI_ADDR_WIDTH ( 32      ),
         .BLOCK_WIDTH    ( 512     ),
         .COUNT_LIMIT    ( 4'b1111 ),
         .COUNT_TO       ( 16      ),
-        .ADDR_INCR_VAL  ( 64'd4   ) 
+        .ADDR_INCR_VAL  ( 32'd4   ) 
     ) DATA_T_APB (
         .clk                ( clock                     ),
-        .arst               ( reset                     ),
+        .arst               ( arst                      ),
         .i_start_read       ( s_start_read_axi_cache & ( ~s_axi4_access )    ),
         .i_start_write      ( s_start_write_axi_cache & ( ~s_axi4_access )   ),
         .i_axi_done         ( s_axi_handshake                ),
         .i_data_block_cache ( s_data_block_write_top    ),
         .i_data_axi         ( s_read_axi_fifo           ),
-        .i_addr_cache       ( s_addr                    ),
+        .i_addr_cache       ( s_addr [ 31:0 ]           ),
         .o_count_done       ( s_count_done_apb          ),
         .o_data_block_cache ( s_data_block_read_top_apb ),
         .o_data_axi         ( s_write_axi_fifo_apb      ),
@@ -1224,7 +1251,7 @@ module ysyx_201979054 (
         .FIFO_WIDTH     ( 512 )
     ) FIFO_0 (
         .clk          ( clock                                       ),
-        .arst         ( reset                                       ),
+        .arst         ( arst                                        ),
         .write_en     ( s_axi_handshake                             ),
         .start_read   ( s_start_read_axi_cache  & ( s_axi4_access ) ),
         .start_write  ( s_start_write_axi_cache & ( s_axi4_access ) ),
@@ -1234,43 +1261,16 @@ module ysyx_201979054 (
         .o_data_block ( s_data_block_read_top_axi4                  )
     );
 
-    // //---------------------------------------------
-    // // Cache data transfer unit instance for AXI4.
-    // //---------------------------------------------
-    // ysyx_201979054_cache_data_transfer # (
-    //     .AXI_DATA_WIDTH ( 64     ),
-    //     .AXI_ADDR_WIDTH ( 64     ),
-    //     .BLOCK_WIDTH    ( 512    ),
-    //     .COUNT_LIMIT    ( 3'b111 ),
-    //     .COUNT_TO       ( 8      ),
-    //     .ADDR_INCR_VAL  ( 64'd8  ) 
-    // ) DATA_T_AXI4 (
-    //     .clk                ( clock                      ),
-    //     .arst               ( reset                      ),
-    //     .i_start_read       ( s_start_read_axi_cache & s_axi4_access     ),
-    //     .i_start_write      ( s_start_write_axi_cache & s_axi4_access    ),
-    //     .i_axi_done         ( s_axi_wrlast               ),
-    //     .i_data_block_cache ( s_data_block_write_top     ),
-    //     .i_data_axi         ( s_read_axi                 ), // ++
-    //     .i_addr_cache       ( s_addr                     ),
-    //     .o_count_done       ( s_count_done_axi4          ), // ++
-    //     .o_data_block_cache ( s_data_block_read_top_axi4 ), // +
-    //     .o_data_axi         ( s_write_axi_fifo_axi4      ), // +
-    //     .o_addr_axi         ( s_addr_calc_axi4           )  // +
-    // );
-
-
-
 
     //-------------------------
     // Memory Data Register. 
     //-------------------------
-    ysyx_201979054_register_en REG_AXI_DATA (
-        .clk          ( clock          ),
-        .arst         ( reset          ),
+    ysyx_201979054_register_en #( .DATA_WIDTH(8) ) REG_AXI_DATA (
+        .clk          ( clock           ),
+        .arst         ( arst            ),
         .write_en     ( s_axi_handshake ),
-        .i_write_data ( s_read_axi     ),
-        .o_read_data  ( s_reg_read_axi )
+        .i_write_data ( s_read_axi[7:0] ),
+        .o_read_data  ( s_reg_read_axi  )
     );
 
 
@@ -1430,41 +1430,45 @@ module ysyx_201979054_csr_file
 endmodule/* Copyright (c) 2024 Maveric NU. All rights reserved. */
 
 // -------------------------------------------------------------------
-// This is a data cache implemneted using 4-way set associative cache.
+// This is a data cache implemented using 2-way set associative cache.
 // -------------------------------------------------------------------
 
 module ysyx_201979054_data_cache 
 #(
-    parameter SET_COUNT   = 2,
-              WORD_SIZE   = 32,
-              BLOCK_WIDTH = 512,
-              N           = 2,
-              ADDR_WIDTH  = 64,
-              REG_WIDTH   = 64
+    parameter SET_COUNT      = 2,
+              WORD_SIZE      = 32,
+              BLOCK_WIDTH    = 512,
+              N              = 2,
+              ADDR_WIDTH     = 64,
+              OUT_ADDR_WIDTH = 32,
+              REG_WIDTH      = 64
 ) 
 (
     // Control signals.
-    input  logic                       clk,
-    input  logic                       arst,
-    input  logic                       write_en,
-    input  logic                       valid_update,
-    input  logic                       lru_update,
-    input  logic                       block_write_en,
+    input  logic                          clk,
+    input  logic                          arst,
+    input  logic                          write_en,
+    input  logic                          valid_update,
+    input  logic                          lru_update,
+    input  logic                          block_write_en,
     
     // Input Interface.
-    input  logic [ ADDR_WIDTH  - 1:0 ] i_data_addr,
-    input  logic [ REG_WIDTH   - 1:0 ] i_data,
-    input  logic [ BLOCK_WIDTH - 1:0 ] i_data_block,
-    input  logic [               1:0 ] i_store_type,
-    input  logic                       i_addr_control,
+    input  logic [ ADDR_WIDTH     - 1:0 ] i_data_addr,
+    input  logic [ REG_WIDTH      - 1:0 ] i_data,
+    input  logic [ BLOCK_WIDTH    - 1:0 ] i_data_block,
+    input  logic [                  1:0 ] i_store_type,
+    input  logic                          i_addr_control,
+    input  logic                          i_start_wb,
+    input  logic                          i_done_wb,
 
     // Output Interface.
-    output logic [ REG_WIDTH   - 1:0 ] o_data,
-    output logic [ BLOCK_WIDTH - 1:0 ] o_data_block,
-    output logic                       o_hit,
-    output logic                       o_dirty,
-    output logic [ ADDR_WIDTH  - 1:0 ] o_addr_axi,
-    output logic                       o_store_addr_ma
+    output logic [ REG_WIDTH      - 1:0 ] o_data,
+    output logic [ BLOCK_WIDTH    - 1:0 ] o_data_block,
+    output logic                          o_hit,
+    output logic                          o_dirty,
+    output logic [ OUT_ADDR_WIDTH - 1:0 ] o_addr_axi,
+    output logic                          o_done_fence,
+    output logic                          o_store_addr_ma
 
 );  
     //-------------------------
@@ -1498,8 +1502,9 @@ module ysyx_201979054_data_cache
     logic [           N - 1:0 ] s_lru_found;
     logic [           N - 1:0 ] s_hit;
 
-    logic [ ADDR_WIDTH - 1:0 ] s_addr_wb;
-    logic [ ADDR_WIDTH - 1:0 ] s_addr;
+    logic [ OUT_ADDR_WIDTH - 1:0 ] s_addr_wb;
+    logic [ OUT_ADDR_WIDTH - 1:0 ] s_addr;
+    logic [ OUT_ADDR_WIDTH - 1:0 ] s_addr_axi;
 
     // Store misalignment signals.
     logic s_store_addr_ma_sh;
@@ -1855,12 +1860,21 @@ module ysyx_201979054_data_cache
     end
 
     //Read dirty bit.
-    assign o_dirty      = dirty_mem[ s_lru ][ s_index ];
-    assign o_data_block = data_mem[ s_index ][ s_lru ];
-    assign s_addr_wb    = { tag_mem[ s_index ][ s_lru ], s_index, 6'b0 };
-    assign s_addr       = { i_data_addr[ADDR_WIDTH - 1:INDEX_LSB ], 6'b0 };
-    assign o_addr_axi   = i_addr_control ? s_addr : s_addr_wb;
+    assign o_dirty      = i_start_wb ? dirty_mem[ s_count[1] ][ s_count[0] ] : dirty_mem[ s_lru ][ s_index ];
+    assign o_data_block = i_start_wb ? data_mem[ s_count[0] ][ s_count[1] ]  : data_mem[ s_index ][ s_lru ];
+    assign s_addr_wb    = { tag_mem[ s_index ][ s_lru ][ OUT_ADDR_WIDTH - 8:0 ], s_index, 6'b0 };
+    assign s_addr       = { i_data_addr[ OUT_ADDR_WIDTH - 1:INDEX_LSB ], 6'b0 };
+    assign s_addr_axi   = i_addr_control ? s_addr : s_addr_wb;
+    assign o_addr_axi   = i_start_wb ? { tag_mem[ s_count[0] ][ s_count[1] ][ OUT_ADDR_WIDTH - 8:0 ], s_count[0] , 6'b0 } : s_addr_axi;
 
+    logic [ 1:0 ] s_count;
+
+    always_ff @( posedge clk, posedge arst ) begin
+        if      ( arst      ) s_count <= '0;
+        else if ( i_done_wb ) s_count <= s_count + 2'b1;
+    end
+
+    assign o_done_fence = i_done_wb & ( s_count == 2'b11 );
     
 endmodule/* Copyright (c) 2024 Maveric NU. All rights reserved. */
 
@@ -1879,6 +1893,7 @@ module ysyx_201979054_data_cache_fsm
 
     // Input Interface.
     input  logic i_start_check,
+    input  logic i_start_wb,
     input  logic i_hit,
     input  logic i_dirty,
     input  logic i_r_last,
@@ -1891,7 +1906,8 @@ module ysyx_201979054_data_cache_fsm
     output logic o_lru_update,
     output logic o_start_write,
     output logic o_start_read,
-    output logic o_addr_control
+    output logic o_addr_control,
+    output logic o_done_wb
 );
 
     //------------------------------
@@ -1899,11 +1915,12 @@ module ysyx_201979054_data_cache_fsm
     //------------------------------
 
     // FSM: States.
-    typedef enum logic [1:0 ] {
-        IDLE        = 2'b00,
-        COMPARE_TAG = 2'b01,
-        ALLOCATE    = 2'b10,
-        WRITE_BACK  = 2'b11
+    typedef enum logic [2:0 ] {
+        IDLE        = 3'b000,
+        COMPARE_TAG = 3'b001,
+        ALLOCATE    = 3'b010,
+        WRITE_BACK  = 3'b011,
+        CHECK_DIRTY = 3'b100
     } t_state;
 
     t_state PS;
@@ -1922,9 +1939,8 @@ module ysyx_201979054_data_cache_fsm
         NS = PS;
 
         case ( PS )
-            IDLE: if ( i_start_check ) begin
-                NS = COMPARE_TAG;
-            end
+            IDLE: if ( i_start_check ) NS = COMPARE_TAG;
+             else if ( i_start_wb    ) NS = CHECK_DIRTY;
 
             COMPARE_TAG: begin
                 if ( i_hit ) begin
@@ -1944,8 +1960,14 @@ module ysyx_201979054_data_cache_fsm
 
             WRITE_BACK: begin
                 if ( i_b_resp ) begin
-                    NS = ALLOCATE;
+                    if ( i_start_wb ) NS = IDLE;
+                    else              NS = ALLOCATE;
                 end
+            end
+
+            CHECK_DIRTY: begin
+                if ( i_dirty ) NS = WRITE_BACK;
+                else           NS = IDLE;
             end
 
             default: NS = PS;
@@ -1961,6 +1983,7 @@ module ysyx_201979054_data_cache_fsm
         o_start_write         = 1'b0;
         o_start_read          = 1'b0;
         o_addr_control        = 1'b1;
+        o_done_wb             = 1'b0;
 
         case ( PS )
             IDLE: begin
@@ -1984,9 +2007,15 @@ module ysyx_201979054_data_cache_fsm
 
             WRITE_BACK: begin
                 o_start_write  = 1'b1;
+                o_done_wb      = i_b_resp & i_start_wb;
                 if ( i_b_resp ) o_addr_control = 1'b1;
                 else            o_addr_control = 1'b0;
             end
+
+            CHECK_DIRTY: begin
+                o_done_wb = ~i_dirty;
+            end
+
             default: begin
                 o_stall               = 1'b1;
                 o_data_block_write_en = 1'b0;
@@ -2172,7 +2201,7 @@ module ysyx_201979054_instr_cache
     logic [ BLOCK_WIDTH - 1:0 ] mem [ BLOCK_COUNT - 1:0 ];
 
     // Valid write logic.
-    always_ff @( posedge clk, posedge arst ) begin
+    always_ff @( posedge clk, posedge arst, posedge i_invalidate_instr ) begin
         if ( arst | i_invalidate_instr ) begin
             valid_mem <= '0;
         end
@@ -2519,6 +2548,7 @@ module ysyx_201979054_main_fsm
     input  logic        i_done_axi,
     input  logic        i_clint_mmio_flag,
     input  logic        i_icache_idle,
+    input  logic        i_done_fence,
 
     // Output interface.
     output logic [ 2:0] o_alu_op,
@@ -2541,6 +2571,7 @@ module ysyx_201979054_main_fsm
     output logic        o_write_en_clint,
     output logic        o_mret_instr,
     output logic        o_interrupt,
+    output logic        o_start_wb,
     output logic [ 3:0] o_mcause,
     output logic        o_csr_we_1,
     output logic        o_csr_we_2,
@@ -2703,9 +2734,8 @@ module ysyx_201979054_main_fsm
             EXECUTER: NS = ALUWB;
 
             ALUWB: begin
-                // if ( i_illegal_instr_alu | ( i_func_7_0 & i_op[5] & (~ i_op[6]) )) NS = CALL_0;
-                // else                       NS = FETCH;    
-                NS = FETCH;             
+                if ( i_illegal_instr_alu | ( i_func_7_0 & i_op[5] & (~ i_op[6]) )) NS = CALL_0;
+                else                       NS = FETCH;    
             end
 
             EXECUTEI: NS = ALUWB;
@@ -2729,7 +2759,8 @@ module ysyx_201979054_main_fsm
 
             CSR_WB: NS = FETCH;
 
-            FENCE_I: NS = FETCH;
+            FENCE_I: if      ( i_func_3[0]  ) NS = FETCH;
+                     else if ( i_done_fence ) NS = FETCH;
 
             default: NS = PS;
         endcase
@@ -2760,6 +2791,7 @@ module ysyx_201979054_main_fsm
         o_write_en_clint   = 1'b0;
         o_mret_instr       = 1'b0;
         o_interrupt        = 1'b0;
+        o_start_wb         = 1'b0;
         o_mcause           = 4'b0000;
         o_csr_we_1         = 1'b0;
         o_csr_we_2         = 1'b0;
@@ -2880,7 +2912,6 @@ module ysyx_201979054_main_fsm
                     o_csr_we_2         = 1'b1; 
                     o_start_d_cache    = 1'b0;
                     o_start_read_nc    = 1'b0;
-                    // $display("time =%0t", $time); // FOR SIMULATION ONLY.
                 end 
 
                 if ( i_stall_data ) o_mem_reg_we = 1'b0;
@@ -2945,14 +2976,14 @@ module ysyx_201979054_main_fsm
                 o_result_src   = 3'b000;
                 o_reg_write_en = 1'b1;
                 
-                // if ( i_illegal_instr_alu | ( i_func_7_0 & i_op[5] & (~ i_op[6]) )) begin
-                //     o_mcause           = 4'd2; // Illegal instruction.
-                //     o_csr_write_addr_1 = 3'b100;  // mcause.
-                //     o_csr_we_1         = 1'b1; 
-                //     o_csr_write_addr_2 = 3'b101;  // mepc.
-                //     o_result_src       = 3'b110; // s_old_pc.  
-                //     o_csr_we_2         = 1'b1; 
-                // end
+                if ( i_illegal_instr_alu | ( i_func_7_0 & i_op[5] & (~ i_op[6]) )) begin
+                    o_mcause           = 4'd2; // Illegal instruction.
+                    o_csr_write_addr_1 = 3'b100;  // mcause.
+                    o_csr_we_1         = 1'b1; 
+                    o_csr_write_addr_2 = 3'b101;  // mepc.
+                    o_result_src       = 3'b110; // s_old_pc.  
+                    o_csr_we_2         = 1'b1; 
+                end
             end
 
             EXECUTEI: begin
@@ -3020,7 +3051,14 @@ module ysyx_201979054_main_fsm
                 else              o_csr_read_addr = s_csr_addr;
             end
 
-            FENCE_I: o_invalidate_instr = 1'b1;
+            FENCE_I: begin
+                o_invalidate_instr = 1'b0;
+                o_start_wb         = 1'b1;
+                if ( i_func_3[0] ) begin
+                    o_invalidate_instr = 1'b1;
+                    o_start_wb         = 1'b0;
+                end
+            end
 
 
             default: begin
@@ -3044,6 +3082,7 @@ module ysyx_201979054_main_fsm
                 o_write_en_clint   = 1'b0;
                 o_mret_instr       = 1'b0;
                 o_interrupt        = 1'b0;
+                o_start_wb         = 1'b0;
                 o_mcause           = 4'b0000;
                 o_csr_we_1         = 1'b0;
                 o_csr_we_2         = 1'b0;
@@ -3382,6 +3421,7 @@ module ysyx_201979054_datapath
               MEM_DATA_WIDTH   = 64,
               MEM_INSTR_WIDTH  = 32,
               MEM_ADDR_WIDTH   = 64,
+              OUT_ADDR_WIDTH   = 32,
               BLOCK_DATA_WIDTH = 512
 
 
@@ -3390,17 +3430,17 @@ module ysyx_201979054_datapath
 (
     //Clock & Reset signals. 
     input  logic                            clk,
-    input  logic                            i_arst,
+    input  logic                            arst,
     input  logic                            i_done_axi,   // NEEDS TO BE CONNECTED TO AXI 
     input  logic [ BLOCK_DATA_WIDTH - 1:0 ] i_data_read_axi,   // NEEDS TO BE CONNECTED TO AXI
     input  logic [ REG_DATA_WIDTH   - 1:0 ] i_data_non_cacheable,
-    output logic [ REG_DATA_WIDTH   - 1:0 ] o_data_non_cacheable,
+    output logic [                    7:0 ] o_data_non_cacheable,
     output logic                            o_start_read_axi,  // NEEDS TO BE CONNECTED TO AXI
     output logic                            o_start_write_axi, // NEEDS TO BE CONNECTED TO AXI
     output logic                            o_start_read_axi_nc,
     output logic                            o_start_write_axi_nc,
-    output logic [ MEM_ADDR_WIDTH   - 1:0 ] o_addr, // JUST FOR SIMULATION
-    output logic [ MEM_ADDR_WIDTH   - 1:0 ] o_addr_non_cacheable,
+    output logic [ OUT_ADDR_WIDTH   - 1:0 ] o_addr, // JUST FOR SIMULATION
+    output logic [ OUT_ADDR_WIDTH   - 1:0 ] o_addr_non_cacheable,
     output logic [ BLOCK_DATA_WIDTH - 1:0 ] o_data_write_axi   // NEEDS TO BE CONNECTED TO AXI
 );
 
@@ -3408,13 +3448,10 @@ module ysyx_201979054_datapath
     // INTERNAL NETS.
     //------------------------
 
-    // Reset signal.
-    logic arst;
-
     // Instruction cache signals.
     logic s_instr_cache_we;
     logic s_instr_hit;
-    logic [31:0] s_instr_read;
+    logic [ MEM_INSTR_WIDTH - 1:0 ] s_instr_read;
 
     // Data cache signals.
     logic       s_data_hit;
@@ -3433,7 +3470,6 @@ module ysyx_201979054_datapath
     // Control unit signals. 
     logic [6:0] s_op;
     logic [2:0] s_func_3;
-    logic [6:0] s_func_7;
     logic [4:0] s_alu_control;
     logic [2:0] s_result_src;
     logic [1:0] s_alu_src_control_1;
@@ -3447,8 +3483,8 @@ module ysyx_201979054_datapath
 
     // Memory signals.
     logic [ MEM_DATA_WIDTH  - 1:0 ] s_mem_read_data;
-    logic [ MEM_ADDR_WIDTH  - 1:0 ] s_addr_axi;
-    logic [ MEM_ADDR_WIDTH  - 1:0 ] s_out_addr;
+    logic [ OUT_ADDR_WIDTH - 1:0 ] s_addr_axi;
+    logic [ OUT_ADDR_WIDTH - 1:0 ] s_out_addr;
     logic [ MEM_ADDR_WIDTH  - 1:0 ] s_reg_mem_addr;
     logic                           s_reg_mem_addr_we;
 
@@ -3527,6 +3563,11 @@ module ysyx_201979054_datapath
     logic s_load_addr_ma;
     logic s_illegal_instr_load;
 
+    // Fence WB signals.
+    logic s_start_wb;
+    logic s_done_wb;
+    logic s_done_fence;
+
 
 
 
@@ -3536,7 +3577,6 @@ module ysyx_201979054_datapath
     assign s_imm         = s_reg_instr[31:7 ];
     assign s_op          = s_reg_instr[ 6:0 ];
     assign s_func_3      = s_reg_instr[14:12];   
-    assign s_func_7      = s_reg_instr[31:25]; 
     assign s_reg_addr_1  = s_reg_instr[19:15];
     assign s_reg_addr_2  = s_reg_instr[24:20];
     assign s_reg_addr_3  = s_reg_instr[11:7 ];
@@ -3552,8 +3592,8 @@ module ysyx_201979054_datapath
     assign s_cacheable_flag  = ( s_reg_mem_addr >= 64'h3000_0000 );
     assign s_clint_mmio_flag = ( s_reg_mem_addr >= 64'h0200_0000 ) & ( s_reg_mem_addr <= 64'h0200_ffff );
 
-    assign o_addr_non_cacheable = s_reg_mem_addr;
-    assign o_data_non_cacheable = s_reg_data_2;
+    assign o_addr_non_cacheable = s_reg_mem_addr [ OUT_ADDR_WIDTH - 1:0 ];
+    assign o_data_non_cacheable = s_reg_data_2 [ 7:0 ];
 
     assign s_mem_data = s_cacheable_flag ? s_reg_mem_data : ( s_clint_mmio_flag ? s_clint_read_data : i_data_non_cacheable);
 
@@ -3567,15 +3607,6 @@ module ysyx_201979054_datapath
     // LOWER LEVEL MODULE INSTANTIATIONS.
     //-----------------------------------
 
-    //------------------------------
-    // Reset Synchronizer Instance.
-    //------------------------------
-    ysyx_201979054_reset_sync RST_SYNC (
-        .clk       ( clk    ),
-        .arst      ( i_arst ),
-        .arst_sync ( arst   )
-    );
-
 
     //---------------------------
     // Control Unit Instance.
@@ -3587,7 +3618,8 @@ module ysyx_201979054_datapath
         .i_instr_20             ( s_reg_instr[20]       ),
         .i_op                   ( s_op                  ),
         .i_func_3               ( s_func_3              ),
-        .i_func_7               ( s_func_7              ),
+        .i_func7_6_4            ( s_reg_instr[31:29]    ),
+        .i_func7_1_0            ( s_reg_instr[26:25]    ),
         .i_zero_flag            ( s_zero_flag           ),
         .i_slt_flag             ( s_slt_flag            ),
         .i_sltu_flag            ( s_sltu_flag           ),
@@ -3604,6 +3636,7 @@ module ysyx_201979054_datapath
         .i_software_int         ( s_software_int        ),
         .i_cacheable_flag       ( s_cacheable_flag      ),
         .i_clint_mmio_flag      ( s_clint_mmio_flag     ),
+        .i_done_fence           ( s_done_fence          ),
         .o_alu_control          ( s_alu_control         ),
         .o_result_src           ( s_result_src          ),
         .o_alu_src_1            ( s_alu_src_control_1   ),
@@ -3629,6 +3662,8 @@ module ysyx_201979054_datapath
         .o_write_en_clint       ( s_clint_write_en      ),
         .o_mret_instr           ( s_mret_instr          ),
         .o_interrupt            ( s_interrupt           ),
+        .o_done_wb              ( s_done_wb             ),
+        .o_start_wb             ( s_start_wb            ),
         .o_mcause               ( s_mcause              ),
         .o_csr_we_1             ( s_csr_we_1            ),
         .o_csr_we_2             ( s_csr_we_2            ),
@@ -3670,11 +3705,14 @@ module ysyx_201979054_datapath
         .i_data_block    ( i_data_read_axi       ),
         .i_store_type    ( s_func_3[1:0]         ),
         .i_addr_control  ( s_addr_control        ),
+        .i_start_wb      ( s_start_wb            ),
+        .i_done_wb       ( s_done_wb             ),
         .o_data          ( s_mem_read_data       ),
         .o_data_block    ( o_data_write_axi      ),
         .o_hit           ( s_data_hit            ),
         .o_dirty         ( s_data_dirty          ),
         .o_addr_axi      ( s_addr_axi            ),
+        .o_done_fence    ( s_done_fence          ),
         .o_store_addr_ma ( s_store_addr_ma       )
     );
 
@@ -3795,7 +3833,7 @@ module ysyx_201979054_datapath
     );  
 
     // Output addr Register Instance.
-    ysyx_201979054_register OUTADDR_REG (
+    ysyx_201979054_register #(.DATA_WIDTH (OUT_ADDR_WIDTH)) OUTADDR_REG (
         .clk          ( clk        ),
         .arst         ( arst       ),
         .i_write_data ( s_out_addr ),
@@ -3901,6 +3939,6 @@ module ysyx_201979054_datapath
 
 
     // FOR SIMULATION. 
-    assign s_out_addr = s_fetch_state ? { s_reg_pc[MEM_ADDR_WIDTH - 1:6 ], 6'b0 } : s_addr_axi; // For a cache line size of 512 bits. e.g. 16 words in 1 line.
+    assign s_out_addr = s_fetch_state ? { s_reg_pc[ OUT_ADDR_WIDTH - 1:6 ], 6'b0 } : s_addr_axi; // For a cache line size of 512 bits. e.g. 16 words in 1 line.
     
 endmodule

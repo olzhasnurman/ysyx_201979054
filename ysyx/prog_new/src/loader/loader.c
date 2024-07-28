@@ -31,6 +31,7 @@ int main()
         }
     }
     putstr("\nLoad finished\nExec app...\n");
+	  asm volatile("fence rw, rw");
     asm volatile("fence.i");
     int (*f)() = (int (*)())(APP_PMEM);
     f();
