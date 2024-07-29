@@ -673,8 +673,7 @@ module  ysyx_201979054_control_unit
     input  logic       arst,
 
     // Input interface. 
-    input  logic        i_instr_22,
-    input  logic        i_instr_20,
+    input  logic [ 2:0] i_instr_22_20,
     input  logic [ 6:0] i_op,
     input  logic [ 2:0] i_func_3,
     input  logic [ 2:0] i_func7_6_4,
@@ -726,6 +725,7 @@ module  ysyx_201979054_control_unit
     output logic        o_interrupt,
     output logic        o_done_wb,
     output logic        o_start_wb,
+    output logic        o_csr_writable,
     output logic [ 3:0] o_mcause,
     output logic        o_csr_we_1,
     output logic        o_csr_we_2,
@@ -788,8 +788,7 @@ module  ysyx_201979054_control_unit
     ysyx_201979054_main_fsm M_FSM (
         .clk                  ( clk                    ),
         .arst                 ( arst                   ),
-        .i_instr_22           ( i_instr_22             ),
-        .i_instr_20           ( i_instr_20             ),
+        .i_instr_22_20        ( i_instr_22_20          ),
         .i_op                 ( i_op                   ),
         .i_func_3             ( i_func_3               ),
         .i_func_7_4           ( i_func7_6_4[0]         ),
@@ -832,6 +831,7 @@ module  ysyx_201979054_control_unit
         .o_mret_instr         ( o_mret_instr           ),
         .o_interrupt          ( o_interrupt            ),
         .o_start_wb           ( s_start_wb             ),
+        .o_csr_writable       ( o_csr_writable         ),
         .o_mcause             ( o_mcause               ),
         .o_csr_we_1           ( o_csr_we_1             ),
         .o_csr_we_2           ( o_csr_we_2             ),
@@ -1362,6 +1362,7 @@ module ysyx_201979054_csr_file
     input  logic                      i_software_int_call,
     input  logic                      i_interrupt_jump,
     input  logic                      i_mret_instr,
+    input  logic                      i_writable,
     
     // Output interface.
     output logic [ DATA_WIDTH - 1:0 ] o_read_data,
@@ -1373,13 +1374,14 @@ module ysyx_201979054_csr_file
 );
 
     // Register block.
-    logic [ DATA_WIDTH - 1:0 ] mem [ REG_DEPTH - 1:0 ];
+    logic [ DATA_WIDTH - 1:0 ] mem           [ REG_DEPTH - 1:0 ];
+    logic [ DATA_WIDTH - 1:0 ] csr_read_only [             3:0 ];
 
     // Write logic.
     always_ff @( posedge clk, posedge arst ) begin 
         if ( arst ) begin
-            mem[ 0 ] <= '0; // Mstatus
-            mem[ 1 ] <= '0; // Mhartid.
+            mem[ 0 ] <= '0; // Mstatus.
+            mem[ 1 ] <= '0; // Reserved.
             mem[ 2 ] <= '0; // Mie.
             mem[ 3 ] <= '0; // Mtvec.
             mem[ 4 ] <= '0; // Mcause.
@@ -1421,8 +1423,17 @@ module ysyx_201979054_csr_file
         end
     end
 
+    always_ff @( posedge clk, posedge arst ) begin
+        if ( arst ) begin
+            csr_read_only [ 0 ] <= '0; // Mhartid.
+            csr_read_only [ 1 ] <= '0; // Mvendorid.
+            csr_read_only [ 2 ] <= '0; // Marchid.
+            csr_read_only [ 3 ] <= '0; // Mimpid.
+        end
+    end
+
     // Read logic.
-    assign o_read_data   = mem [ i_read_addr ];
+    assign o_read_data   = i_writable ? mem [ i_read_addr ] : csr_read_only [ i_read_addr[1:0] ];
     assign o_mie_mstatus = mem [ 0 ][ 3 ];
     assign o_mtip_mip    = mem [ 6 ][ 7 ];
     assign o_msip_mip    = mem [ 6 ][ 3 ];
@@ -2526,8 +2537,7 @@ module ysyx_201979054_main_fsm
     input  logic       arst,
 
     // Input interface. 
-    input  logic        i_instr_22,
-    input  logic        i_instr_20,
+    input  logic [ 2:0] i_instr_22_20,
     input  logic [ 6:0] i_op,
     input  logic [ 2:0] i_func_3,
     input  logic        i_func_7_4,
@@ -2572,6 +2582,7 @@ module ysyx_201979054_main_fsm
     output logic        o_mret_instr,
     output logic        o_interrupt,
     output logic        o_start_wb,
+    output logic        o_csr_writable,
     output logic [ 3:0] o_mcause,
     output logic        o_csr_we_1,
     output logic        o_csr_we_2,
@@ -2583,8 +2594,10 @@ module ysyx_201979054_main_fsm
 
     logic s_func_3_reduction;
     logic [2:0] s_csr_addr;
+    logic [2:0] s_csr_addr_read_only;
 
-    assign s_csr_addr = { i_func_7_1, i_instr_22, i_instr_20 };
+    assign s_csr_addr = { i_func_7_1, i_instr_22_20[2], i_instr_22_20[0] };
+    assign s_csr_addr_read_only = { 1'b0, i_instr_22_20 [ 1:0 ] };
     assign s_func_3_reduction = | i_func_3;
 
     // State type.
@@ -2792,6 +2805,7 @@ module ysyx_201979054_main_fsm
         o_mret_instr       = 1'b0;
         o_interrupt        = 1'b0;
         o_start_wb         = 1'b0;
+        o_csr_writable     = 1'b1;
         o_mcause           = 4'b0000;
         o_csr_we_1         = 1'b0;
         o_csr_we_2         = 1'b0;
@@ -2853,8 +2867,8 @@ module ysyx_201979054_main_fsm
                         o_mret_instr = 1'b1;
                     end
                     else begin
-                        if ( ~i_instr_20 ) o_mcause = 4'd11; // Env call from M-mode.
-                        else               o_mcause = 4'd3; // Env breakpoint.
+                        if ( ~i_instr_22_20[0] ) o_mcause = 4'd11; // Env call from M-mode.
+                        else                     o_mcause = 4'd3; // Env breakpoint.
                         o_csr_write_addr_1 = 3'b100;  // mcause.
                         o_csr_we_1         = 1'b1; 
                         o_csr_write_addr_2 = 3'b101;  // mepc.
@@ -3029,14 +3043,16 @@ module ysyx_201979054_main_fsm
             CSR_EXECUTE: begin
                 if ( i_func_3[2] ) o_alu_src_1  = 2'b11;
                 else               o_alu_src_1  = 2'b10;
-                o_alu_src_2  = 2'b11;
-                o_alu_op     = 3'b100;
-                o_csr_we_2   = 1'b1;
-                o_result_src = 3'b010;
-                o_csr_reg_we = 1'b1;
-                if ( i_func_7_6 ) begin 
-                    o_csr_write_addr_2 = 3'b001; // Mhartid.
-                    o_csr_read_addr    = 3'b001; // Mhartid.
+                o_alu_src_2    = 2'b11;
+                o_alu_op       = 3'b100;
+                o_csr_we_2     = 1'b1;
+                o_result_src   = 3'b010;
+                o_csr_reg_we   = 1'b1;
+                o_csr_writable = 1'b1;
+                if ( i_func_7_6 ) begin
+                    o_csr_writable     = 1'b0;
+                    o_csr_we_2         = 1'b0;  
+                    o_csr_read_addr    = s_csr_addr_read_only; // Mvendorid, Marchid, Mimpid, Mhartid.
                 end
                 else begin 
                     o_csr_write_addr_2 = s_csr_addr;
@@ -3047,7 +3063,8 @@ module ysyx_201979054_main_fsm
             CSR_WB: begin
                 o_reg_write_en    = 1'b1;
                 o_result_src      = 3'b101; // s_csr_read_data_reg
-                if ( i_func_7_6 ) o_csr_read_addr = 3'b001; // Mhartid.
+                o_csr_writable    = ~i_func_7_6;
+                if ( i_func_7_6 ) o_csr_read_addr = s_csr_addr_read_only;
                 else              o_csr_read_addr = s_csr_addr;
             end
 
@@ -3089,6 +3106,7 @@ module ysyx_201979054_main_fsm
                 o_mret_instr       = 1'b0;
                 o_interrupt        = 1'b0;
                 o_start_wb         = 1'b0;
+                o_csr_writable     = 1'b1;
                 o_mcause           = 4'b0000;
                 o_csr_we_1         = 1'b0;
                 o_csr_we_2         = 1'b0;
@@ -3541,6 +3559,7 @@ module ysyx_201979054_datapath
     logic [ REG_DATA_WIDTH - 1:0 ] s_csr_mcause;
     logic [                  3:0 ] s_mcause;
     logic                          s_mret_instr;
+    logic                          s_csr_writable;
 
     // Cacheable mark.
     logic s_cacheable_flag;
@@ -3620,8 +3639,7 @@ module ysyx_201979054_datapath
     ysyx_201979054_control_unit CU (
         .clk                    ( clk                   ), 
         .arst                   ( arst                  ),
-        .i_instr_22             ( s_reg_instr[22]       ),
-        .i_instr_20             ( s_reg_instr[20]       ),
+        .i_instr_22_20          ( s_reg_instr[22:20]    ),
         .i_op                   ( s_op                  ),
         .i_func_3               ( s_func_3              ),
         .i_func7_6_4            ( s_reg_instr[31:29]    ),
@@ -3671,6 +3689,7 @@ module ysyx_201979054_datapath
         .o_interrupt            ( s_interrupt           ),
         .o_done_wb              ( s_done_wb             ),
         .o_start_wb             ( s_start_wb            ),
+        .o_csr_writable         ( s_csr_writable        ),
         .o_mcause               ( s_mcause              ),
         .o_csr_we_1             ( s_csr_we_1            ),
         .o_csr_we_2             ( s_csr_we_2            ),
@@ -3752,6 +3771,7 @@ module ysyx_201979054_datapath
         .i_software_int_call ( s_software_int_call ),
         .i_interrupt_jump    ( s_interrupt         ),
         .i_mret_instr        ( s_mret_instr        ),
+        .i_writable          ( s_csr_writable      ),
         .o_read_data         ( s_csr_read_data     ),
         .o_mie_mstatus       ( s_mie_mstatus       ),
         .o_mtip_mip          ( s_mtip_mip          ),
