@@ -2,8 +2,8 @@
 
 import os
 
-APP_NAME = 'hello'
-APP_TYPE = 'mem'  # flash, mem
+APP_NAME = 'print-id'
+APP_TYPE = 'flash'  # flash, mem
 APP_ARCH = 'riscv64-mycpu'
 APP_ORG_BIN = APP_NAME + '-' + APP_ARCH + '.bin'
 APP_ORG_ELF = APP_NAME + '-' + APP_ARCH + '.elf'
