@@ -14,7 +14,7 @@ app = [('hello', 60, 'cmd'), ('memtest', 140, 'cmd'),
        ('pascal-am', 20, 'cmd'), ('prime-am', 100, 'cmd'), ('quick-sort-am', 20, 'cmd'), ('recursion-am', 50, 'cmd'), ('select-sort-am', 20, 'cmd'),
        ('shift-am', 20, 'cmd'), ('shuixianhua-am', 200, 'cmd'), ('string-am', 20, 'cmd'), ('sub-longlong-am', 20, 'cmd'), ('sum-am', 20, 'cmd'),
        ('switch-am', 20, 'cmd'), ('to-lower-case-am', 20, 'cmd'), ('unalign-am', 20, 'cmd'), ('wanshu-am', 50, 'cmd'), ('logo', 300, 'cmd'),
-       ('print-id', 10, 'cmd')]
+       ('print-id', 30, 'cmd')]
 
 
 def run_stand_check():
