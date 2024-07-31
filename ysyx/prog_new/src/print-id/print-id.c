@@ -43,8 +43,8 @@ int main(){
 		message_0[5] = '\0';
 		message_1[7] = '\n';
     message_1[8] = '\0'; // Null-terminate the string
-		message_2[2] = '\n';
-		message_2[3] = '\0';
+		message_2[7] = '\n';
+		message_2[8] = '\0';
 
 		putstr("mvendorid: ");
 		putstr(message_0);

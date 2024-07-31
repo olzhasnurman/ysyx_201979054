@@ -1431,9 +1431,9 @@ module ysyx_201979054_csr_file
     always_ff @( posedge clk, posedge arst ) begin
         if ( arst ) begin
             csr_read_only [ 0 ] <= '0; // Mhartid.
-            csr_read_only [ 1 ] <= 64'h4352_564d; // Mvendorid.
-            csr_read_only [ 2 ] <= 64'h0043_4952_4556_414d; // Marchid.
-            csr_read_only [ 3 ] <= 64'h3123; // Mimpid.
+            csr_read_only [ 1 ] <= 64'h6372_766d; // Mvendorid.
+            csr_read_only [ 2 ] <= 64'h0063_6972_6576_616d; // Marchid.
+            csr_read_only [ 3 ] <= 64'h0062_672d_656e_7574; // Mimpid.
         end
     end
 
