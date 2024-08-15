@@ -1127,7 +1127,7 @@ module ysyx_201979054 (
     
     assign s_addr_axi      = ( s_read_req_non_cacheable | s_write_req_non_cacheable ) ? s_addr_non_cacheable : s_addr_calc;
     assign s_axi_size      = ( s_read_req_non_cacheable | s_write_req_non_cacheable ) ? 3'b00 : s_axi_size_cache;
-    assign s_axi_strb      = s_write_req_non_cacheable  ? 8'h01 : s_axi_strb_cache;
+    assign s_axi_strb      = s_write_req_non_cacheable  ? 8'h08 : s_axi_strb_cache;
     assign s_axi_len       = s_axi4_access ? 8'b111 : 8'b000;
 
     assign s_read_axi_fifo        = s_read_axi [ 31:0 ];
