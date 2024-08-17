@@ -1072,7 +1072,7 @@ module ysyx_201979054 (
     logic [ 511:0 ] s_data_block_read_top_axi4;
     logic [ 511:0 ] s_data_block_read_top_apb;
     logic [  63:0 ] s_data_non_cacheable_r;
-    logic [   7:0 ] s_data_non_cacheable_w;
+    logic [  31:0 ] s_data_non_cacheable_w;
     logic [  31:0 ] s_addr;
     logic [  31:0 ] s_addr_non_cacheable;
     logic [  31:0 ] s_addr_calc;
@@ -1086,7 +1086,7 @@ module ysyx_201979054 (
     logic [ 31:0 ] s_addr_axi;
     logic [ 63:0 ] s_write_axi;
     logic [ 63:0 ] s_read_axi;
-    logic [  7:0 ] s_reg_read_axi;
+    logic [ 31:0 ] s_reg_read_axi;
 
     logic s_axi_done;
     logic s_axi_handshake;
@@ -1103,6 +1103,7 @@ module ysyx_201979054 (
 
     logic [ 2:0 ] s_axi_size;
     logic [ 2:0 ] s_axi_size_cache;
+    logic [ 2:0 ] s_axi_size_non_cache;
     logic [ 7:0 ] s_axi_strb;
     logic [ 7:0 ] s_axi_strb_cache;
     logic [ 7:0 ] s_axi_len;
@@ -1126,13 +1127,13 @@ module ysyx_201979054 (
     assign s_start_write_axi       = s_write_req_non_cacheable | s_start_write_axi_cache;
     
     assign s_addr_axi      = ( s_read_req_non_cacheable | s_write_req_non_cacheable ) ? s_addr_non_cacheable : s_addr_calc;
-    assign s_axi_size      = ( s_read_req_non_cacheable | s_write_req_non_cacheable ) ? 3'b00 : s_axi_size_cache;
+    assign s_axi_size      = ( s_read_req_non_cacheable | s_write_req_non_cacheable ) ? s_axi_size_non_cache : s_axi_size_cache;
     assign s_axi_strb      = s_write_req_non_cacheable  ? ( 8'h01 << s_addr_non_cacheable [ 2 : 0 ] ) : s_axi_strb_cache;
     assign s_axi_len       = s_axi4_access ? 8'b111 : 8'b000;
 
     assign s_read_axi_fifo        = s_read_axi [ 31:0 ];
-    assign s_data_non_cacheable_r = { 56'b0 , s_reg_read_axi };
-    assign s_write_axi            = s_write_req_non_cacheable ? { 8 { s_data_non_cacheable_w } } : s_write_axi_fifo;
+    assign s_data_non_cacheable_r = { 32'b0 , s_reg_read_axi };
+    assign s_write_axi            = s_write_req_non_cacheable ? ( { 32'b0 , s_data_non_cacheable_w} << 8*s_addr_non_cacheable [ 2 : 0 ] ) : s_write_axi_fifo;
 
     assign s_done = ( s_count_done ) | ( s_axi_done & ( s_read_req_non_cacheable | s_write_req_non_cacheable ) ) | ( s_axi4_access & s_axi_done ); 
 
@@ -1169,6 +1170,7 @@ module ysyx_201979054 (
         .o_start_write_axi    ( s_write_req               ),
         .o_addr               ( s_addr                    ),
         .o_addr_non_cacheable ( s_addr_non_cacheable      ),
+        .o_size_non_cacheable ( s_axi_size_non_cache      ),
         .o_data_write_axi     ( s_data_block_write_top    )
     );
 
@@ -1272,11 +1274,11 @@ module ysyx_201979054 (
     //-------------------------
     // Memory Data Register. 
     //-------------------------
-    ysyx_201979054_register_en #( .DATA_WIDTH(8) ) REG_AXI_DATA (
+    ysyx_201979054_register_en #( .DATA_WIDTH(32) ) REG_AXI_DATA (
         .clk          ( clock           ),
         .arst         ( arst            ),
         .write_en     ( s_axi_handshake ),
-        .i_write_data ( s_read_axi[7:0] ),
+        .i_write_data ( s_read_axi[31:0] ),
         .o_read_data  ( s_reg_read_axi  )
     );
 
@@ -3489,13 +3491,14 @@ module ysyx_201979054_datapath
     input  logic                            i_done_axi,   // NEEDS TO BE CONNECTED TO AXI 
     input  logic [ BLOCK_DATA_WIDTH - 1:0 ] i_data_read_axi,   // NEEDS TO BE CONNECTED TO AXI
     input  logic [ REG_DATA_WIDTH   - 1:0 ] i_data_non_cacheable,
-    output logic [                    7:0 ] o_data_non_cacheable,
+    output logic [                   31:0 ] o_data_non_cacheable,
     output logic                            o_start_read_axi,  // NEEDS TO BE CONNECTED TO AXI
     output logic                            o_start_write_axi, // NEEDS TO BE CONNECTED TO AXI
     output logic                            o_start_read_axi_nc,
     output logic                            o_start_write_axi_nc,
     output logic [ OUT_ADDR_WIDTH   - 1:0 ] o_addr, // JUST FOR SIMULATION
     output logic [ OUT_ADDR_WIDTH   - 1:0 ] o_addr_non_cacheable,
+    output logic [                    2:0 ] o_size_non_cacheable,
     output logic [ BLOCK_DATA_WIDTH - 1:0 ] o_data_write_axi   // NEEDS TO BE CONNECTED TO AXI
 );
 
@@ -3569,6 +3572,7 @@ module ysyx_201979054_datapath
     // MUX signals.
     logic [ REG_DATA_WIDTH - 1:0 ] s_result;
     logic [ REG_DATA_WIDTH - 1:0 ] s_mem_data;
+    logic [ REG_DATA_WIDTH - 1:0 ] s_load_data;
 
     // Immediate extend unit signals. 
     logic [                  24:0 ] s_imm;
@@ -3649,9 +3653,10 @@ module ysyx_201979054_datapath
     assign s_clint_mmio_flag = ( s_reg_mem_addr >= 64'h0200_0000 ) & ( s_reg_mem_addr <= 64'h0200_ffff );
 
     assign o_addr_non_cacheable = s_reg_mem_addr [ OUT_ADDR_WIDTH - 1:0 ];
-    assign o_data_non_cacheable = s_reg_data_2 [ 7:0 ];
+    assign o_data_non_cacheable = s_reg_data_2 [ 31:0 ];
 
-    assign s_mem_data = s_cacheable_flag ? s_reg_mem_data : ( s_clint_mmio_flag ? s_clint_read_data : i_data_non_cacheable);
+    assign s_mem_data = s_cacheable_flag ? s_reg_mem_data : ( s_clint_mmio_flag ? s_clint_read_data : s_mem_load_data);
+    assign s_load_data = s_cacheable_flag  ? s_mem_read_data : i_data_non_cacheable;
 
     assign s_reg_pc_val = s_fetch_state ? s_reg_pc : s_reg_old_pc;
 
@@ -3988,7 +3993,7 @@ module ysyx_201979054_datapath
     //------------------------------
     ysyx_201979054_load_mux LOAD_MUX (
         .i_func_3        ( s_func_3             ),
-        .i_data          ( s_mem_read_data      ),
+        .i_data          ( s_load_data          ),
         .i_addr_offset   ( s_addr_offset        ),
         .o_data          ( s_mem_load_data      ),
         .o_load_addr_ma  ( s_load_addr_ma       ),
@@ -3996,7 +4001,9 @@ module ysyx_201979054_datapath
     );
 
 
-    // FOR SIMULATION. 
+    // 
     assign s_out_addr = s_fetch_state ? { s_reg_pc[ OUT_ADDR_WIDTH - 1:6 ], 6'b0 } : s_addr_axi; // For a cache line size of 512 bits. e.g. 16 words in 1 line.
+    
+    assign o_size_non_cacheable = { 1'b0, s_func_3 [ 1:0 ] };
     
 endmodule
